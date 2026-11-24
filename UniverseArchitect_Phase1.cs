@@ -332,7 +332,7 @@ namespace UniverseArchitect
         {
             if (UniverseArchitectMod.TopicsInjected) return;
 
-            var allTopicsAssets = Resources.FindObjectsOfTypeAll<Topics>();
+            var allTopicsAssets = UnityEngine.Resources.FindObjectsOfTypeAll<Topics>();
             if (allTopicsAssets == null || allTopicsAssets.Length == 0) return;
 
             var topicsAsset = allTopicsAssets[0];
@@ -376,26 +376,57 @@ namespace UniverseArchitect
             UniverseArchitectMod.TopicsInjected = true;
         }
 
-        private static Dictionary<string, int> BuildRuntimeGenreIndexMap()
+                private static Dictionary<string, int> BuildRuntimeGenreIndexMap()
         {
             var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                var allGenres = GameGenre.getAll();
-                if (allGenres != null)
+                var genreManager = Patch_CaptureGameGenre.Instance;
+                if (genreManager != null)
                 {
-                    for (int i = 0; i < allGenres.Count; i++)
+                    var allGenres = genreManager.getAll();
+                    if (allGenres != null)
                     {
-                        var genre = allGenres[i];
-                        int idx = GameGenre.getIndexOf(genre);
-                        string key = !string.IsNullOrEmpty(genre.id) ? genre.id : genre.name;
-                        if (!string.IsNullOrEmpty(key))
+                        for (int i = 0; i < allGenres.Count; i++)
                         {
-                            map[key] = idx;
-                            MelonLogger.Msg($"[NJG-Debug] Genre Indeks -> {key} = {idx}");
+                            var genre = allGenres[i];
+                            int idx = genreManager.getIndexOf(genre);
+                            string key = !string.IsNullOrEmpty(genre.id) ? genre.id : genre.name;
+                            if (!string.IsNullOrEmpty(key))
+                            {
+                                map[key] = idx;
+                                MelonLogger.Msg($"[NJG-Debug] Genre Indeks -> {key} = {idx}");
+                            }
                         }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"[NJG-Debug] Dinamik genre indeksi okunamadi: {ex.Message}");
+            }
+
+            if (map.Count == 0)
+            {
+                map["Action"] = 0; map["Adventure"] = 1; map["RPG"] = 2;
+                map["Simulation"] = 3; map["Strategy"] = 4; map["Casual"] = 5;
+            }
+            return map;
+        }
+    }
+
+    [HarmonyPatch(typeof(GameGenre), nameof(GameGenre.getAll))]
+    public static class Patch_CaptureGameGenre
+    {
+        public static GameGenre Instance;
+
+        static void Postfix(GameGenre __instance)
+        {
+            if (Instance == null && __instance != null)
+                Instance = __instance;
+        }
+    }
+
             }
             catch (Exception ex)
             {
