@@ -442,7 +442,7 @@ namespace UniverseArchitect
     [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
     public static class Patch_OptionalPlayGamesSignIn
     {
-        private static bool Prefix()
+        public static bool Prefix()
         {
             MelonLogger.Msg("[Universe Architect] Google Play Games girisi devre disi; offline devam ediliyor.");
             return false;
