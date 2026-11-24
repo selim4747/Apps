@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using MelonLoader;
 using HarmonyLib;
 using UnityEngine;
-using Il2CppRarebyte.GDT; // Derlemede bulunamazsa "Rarebyte.GDT" olarak degistir
+using Il2CppRarebyte.GDT;
 
 [assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.0.0", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
@@ -221,12 +221,12 @@ namespace UniverseArchitect
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect (NJG Edition) - Offline koruma aktif ediliyor...");
+            LoggerInstance.Msg("Universe Architect (NJG Edition) - Faz 1 + Offline Koruma aktif ediliyor...");
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.offline");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.phase1");
                 harmony.PatchAll();
-                LoggerInstance.Msg("[Universe Architect] Google Play Games offline yamalari basariyla uygulandi!");
+                LoggerInstance.Msg("[Universe Architect] Tum Faz 1 ve Offline yamalari basariyla uygulandi!");
             }
             catch (Exception ex)
             {
@@ -236,7 +236,7 @@ namespace UniverseArchitect
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
-            LoggerInstance.Msg($"[Universe Architect] Offline test modu aktif; gameplay enjeksiyonu kapali. Sahne: {sceneName}");
+            TopicInjectorHelper.TryInjectTopics();
         }
 
         public static int ApplyCappedModHype(int rawModHype)
@@ -246,30 +246,42 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 4. GAMEPLAY YAMALARI (Simdilik pasif — offline giris testinden sonra acilacak)
+    // 4. FAZ 1 GAMEPLAY YAMALARI (AKTIF)
     // =========================================================================
+    [HarmonyPatch(typeof(General), nameof(General.proceedOneWeek))]
     public static class Patch_WeekTickAndInit
     {
         static void Postfix(Company company, Il2CppSystem.Nullable<double> fractionalWeek)
         {
-            if (company == null || !company.isCurrentlyDevelopingGame() || company.currentGame == null)
-                return;
-
-            int staffCount = company.staff != null ? company.staff.Count : 1;
-            string sizeStr = company.currentGame.gameSize ?? "small";
-
-            if (!UniverseArchitectMod.LoggedGameSizeOnce)
+            try
             {
-                MelonLogger.Msg($"[NJG-Debug] Aktif gameSize degeri: '{sizeStr}'");
-                UniverseArchitectMod.LoggedGameSizeOnce = true;
+                // Henuz enjekte olmadiysa ilk haftada garanti olarak tetikle
+                if (!UniverseArchitectMod.TopicsInjected)
+                    TopicInjectorHelper.TryInjectTopics();
+
+                if (company == null || !company.isCurrentlyDevelopingGame() || company.currentGame == null)
+                    return;
+
+                int staffCount = company.staff != null ? company.staff.Count : 1;
+                string sizeStr = company.currentGame.gameSize ?? "small";
+
+                if (!UniverseArchitectMod.LoggedGameSizeOnce)
+                {
+                    MelonLogger.Msg($"[NJG-Debug] Aktif gameSize degeri: '{sizeStr}'");
+                    UniverseArchitectMod.LoggedGameSizeOnce = true;
+                }
+
+                GameScale scale = ParseScale(sizeStr);
+                SoloDevSystem.OnDevelopmentWeekTick(staffCount, scale);
+
+                if (SoloDevSystem.IsBurnedOut && staffCount == 1)
+                {
+                    MelonLogger.Warning("[Universe Architect] Tukenmislik aktif! Gelistirme hizi -%30.");
+                }
             }
-
-            GameScale scale = ParseScale(sizeStr);
-            SoloDevSystem.OnDevelopmentWeekTick(staffCount, scale);
-
-            if (SoloDevSystem.IsBurnedOut && staffCount == 1)
+            catch (Exception ex)
             {
-                MelonLogger.Warning("[Universe Architect] Tukenmislik aktif! Gelistirme hizi -%30.");
+                MelonLogger.Error($"[Universe Architect] WeekTick hatasi: {ex.Message}");
             }
         }
 
@@ -285,45 +297,57 @@ namespace UniverseArchitect
         }
     }
 
+    [HarmonyPatch(typeof(General), nameof(General.getGameSizeDurationFactor))]
     public static class Patch_SoloDevSpeed
     {
         static void Postfix(string gameSize, ref double __result)
         {
             if (SoloDevSystem.IsBurnedOut)
             {
-                __result *= 1.30;
+                __result *= 1.30; // Sure %30 uzar
             }
         }
     }
 
+    [HarmonyPatch(typeof(Research), nameof(Research.getAllItems))]
     public static class Patch_InjectEngineFeatures
     {
         static void Postfix(ref Il2CppSystem.Collections.Generic.List<ResearchItem> __result)
         {
-            if (__result == null || UniverseArchitectMod.ResearchInjected) return;
-
-            foreach (var feat in Phase1Database.EngineFeatures)
+            try
             {
-                bool exists = false;
-                for (int i = 0; i < __result.Count; i++)
+                if (!UniverseArchitectMod.TopicsInjected)
+                    TopicInjectorHelper.TryInjectTopics();
+
+                if (__result == null || UniverseArchitectMod.ResearchInjected) return;
+
+                foreach (var feat in Phase1Database.EngineFeatures)
                 {
-                    if (__result[i].id == feat.Id) { exists = true; break; }
+                    bool exists = false;
+                    for (int i = 0; i < __result.Count; i++)
+                    {
+                        if (__result[i].id == feat.Id) { exists = true; break; }
+                    }
+                    if (exists) continue;
+
+                    var item = new ResearchItem();
+                    item.id = feat.Id;
+                    item.category = "Engine";
+                    item.cost = new Il2CppSystem.Nullable<double>(50000 * feat.CostMultiplier);
+                    item.engineCost = new Il2CppSystem.Nullable<double>(25000 * feat.CostMultiplier);
+                    item.pointsCost = new Il2CppSystem.Nullable<double>(30);
+                    item.enginePoints = new Il2CppSystem.Nullable<int>(20);
+
+                    __result.Add(item);
+                    MelonLogger.Msg($"[Universe Architect] Motor ozelligi eklendi: {feat.Name}");
                 }
-                if (exists) continue;
 
-                var item = new ResearchItem();
-                item.id = feat.Id;
-                item.category = "Engine";
-                item.cost = new Il2CppSystem.Nullable<double>(50000 * feat.CostMultiplier);
-                item.engineCost = new Il2CppSystem.Nullable<double>(25000 * feat.CostMultiplier);
-                item.pointsCost = new Il2CppSystem.Nullable<double>(30);
-                item.enginePoints = new Il2CppSystem.Nullable<int>(20);
-
-                __result.Add(item);
-                MelonLogger.Msg($"[Universe Architect] Motor ozelligi eklendi: {feat.Name}");
+                UniverseArchitectMod.ResearchInjected = true;
             }
-
-            UniverseArchitectMod.ResearchInjected = true;
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[Universe Architect] Motor ozelligi enjeksiyon hatasi: {ex.Message}");
+            }
         }
     }
 
@@ -333,48 +357,55 @@ namespace UniverseArchitect
         {
             if (UniverseArchitectMod.TopicsInjected) return;
 
-            var allTopicsAssets = UnityEngine.Resources.FindObjectsOfTypeAll<Topics>();
-            if (allTopicsAssets == null || allTopicsAssets.Length == 0) return;
-
-            var topicsAsset = allTopicsAssets[0];
-            if (topicsAsset.topics == null) return;
-
-            var genreIndexMap = BuildRuntimeGenreIndexMap();
-
-            foreach (var def in Phase1Database.Topics)
+            try
             {
-                bool exists = false;
-                for (int i = 0; i < topicsAsset.topics.Count; i++)
-                {
-                    if (topicsAsset.topics[i].id == def.Id) { exists = true; break; }
-                }
-                if (exists) continue;
+                var allTopicsAssets = UnityEngine.Resources.FindObjectsOfTypeAll<Topics>();
+                if (allTopicsAssets == null || allTopicsAssets.Length == 0) return;
 
-                var newTopic = new TopicType();
-                newTopic.id = def.Id;
-                newTopic.name = def.Name;
+                var topicsAsset = allTopicsAssets[0];
+                if (topicsAsset.topics == null) return;
 
-                double[] g = { 0.8, 0.8, 0.8, 0.8, 0.8, 0.8 };
-                foreach (var kvp in def.GenreWeights)
+                var genreIndexMap = BuildRuntimeGenreIndexMap();
+
+                foreach (var def in Phase1Database.Topics)
                 {
-                    if (genreIndexMap.TryGetValue(kvp.Key, out int idx) && idx >= 0 && idx < 6)
+                    bool exists = false;
+                    for (int i = 0; i < topicsAsset.topics.Count; i++)
                     {
-                        g[idx] = kvp.Value;
+                        if (topicsAsset.topics[i].id == def.Id) { exists = true; break; }
                     }
+                    if (exists) continue;
+
+                    var newTopic = new TopicType();
+                    newTopic.id = def.Id;
+                    newTopic.name = def.Name;
+
+                    double[] g = { 0.8, 0.8, 0.8, 0.8, 0.8, 0.8 };
+                    foreach (var kvp in def.GenreWeights)
+                    {
+                        if (genreIndexMap.TryGetValue(kvp.Key, out int idx) && idx >= 0 && idx < 6)
+                        {
+                            g[idx] = kvp.Value;
+                        }
+                    }
+                    newTopic.genreWeightings = new GenreWeightings(g[0], g[1], g[2], g[3], g[4], g[5]);
+
+                    newTopic.audienceWeightings = new AudienceWeightings(
+                        def.AudienceWeights[0],
+                        def.AudienceWeights[1],
+                        def.AudienceWeights[2]
+                    );
+
+                    topicsAsset.topics.Add(newTopic);
+                    MelonLogger.Msg($"[Universe Architect] Konu enjekte edildi: {def.Name}");
                 }
-                newTopic.genreWeightings = new GenreWeightings(g[0], g[1], g[2], g[3], g[4], g[5]);
 
-                newTopic.audienceWeightings = new AudienceWeightings(
-                    def.AudienceWeights[0],
-                    def.AudienceWeights[1],
-                    def.AudienceWeights[2]
-                );
-
-                topicsAsset.topics.Add(newTopic);
-                MelonLogger.Msg($"[Universe Architect] Konu enjekte edildi: {def.Name}");
+                UniverseArchitectMod.TopicsInjected = true;
             }
-
-            UniverseArchitectMod.TopicsInjected = true;
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[Universe Architect] Konu enjeksiyon hatasi: {ex.Message}");
+            }
         }
 
         private static Dictionary<string, int> BuildRuntimeGenreIndexMap()
@@ -416,6 +447,7 @@ namespace UniverseArchitect
         }
     }
 
+    [HarmonyPatch(typeof(GameGenre), nameof(GameGenre.getAll))]
     public static class Patch_CaptureGameGenre
     {
         public static GameGenre Instance;
@@ -423,31 +455,42 @@ namespace UniverseArchitect
         static void Postfix(GameGenre __instance)
         {
             if (Instance == null && __instance != null)
+            {
                 Instance = __instance;
+                TopicInjectorHelper.TryInjectTopics();
+            }
         }
     }
 
+    [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
     {
         static void Postfix(Company company)
         {
-            if (company == null || company.currentGame == null) return;
-            var game = company.currentGame;
-
-            MelonLogger.Msg($"[NJG-Debug] Oyun puanlandi! Orijinal Skor: {game.score}, Hype: {game.hypePoints}");
-
-            if (UniverseArchitectMod.ActiveProjectCategory == ProjectCategory.UD)
+            try
             {
-                game.score = Math.Min(10.0, game.score * 1.05);
-                MelonLogger.Msg($"[Universe Architect] UD bonusu uygulandi -> Yeni Skor: {game.score:F2}");
+                if (company == null || company.currentGame == null) return;
+                var game = company.currentGame;
+
+                MelonLogger.Msg($"[NJG-Debug] Oyun puanlandi! Orijinal Skor: {game.score}, Hype: {game.hypePoints}");
+
+                if (UniverseArchitectMod.ActiveProjectCategory == ProjectCategory.UD)
+                {
+                    game.score = Math.Min(10.0, game.score * 1.05);
+                    MelonLogger.Msg($"[Universe Architect] UD bonusu uygulandi -> Yeni Skor: {game.score:F2}");
+                }
+
+                if (UniverseArchitectMod.PendingPostCreditsHype > 0)
+                {
+                    int capped = UniverseArchitectMod.ApplyCappedModHype(UniverseArchitectMod.PendingPostCreditsHype);
+                    company.adjustHype(capped);
+                    UniverseArchitectMod.PendingPostCreditsHype = 0;
+                    MelonLogger.Msg($"[Universe Architect] Post-Credits Hype aktarildi: +{capped}");
+                }
             }
-
-            if (UniverseArchitectMod.PendingPostCreditsHype > 0)
+            catch (Exception ex)
             {
-                int capped = UniverseArchitectMod.ApplyCappedModHype(UniverseArchitectMod.PendingPostCreditsHype);
-                company.adjustHype(capped);
-                UniverseArchitectMod.PendingPostCreditsHype = 0;
-                MelonLogger.Msg($"[Universe Architect] Post-Credits Hype aktarildi: +{capped}");
+                MelonLogger.Error($"[Universe Architect] ReviewGame hatasi: {ex.Message}");
             }
         }
     }
@@ -467,33 +510,3 @@ namespace UniverseArchitect
 
     [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
     public static class Patch_BlockSocialAuthenticate
-    {
-        static bool Prefix(Il2CppSystem.Action<bool, string> action)
-        {
-            MelonLogger.Msg("[Universe Architect] SocialManager.Authenticate durduruldu -> success=false.");
-            action?.Invoke(false, "Offline mod");
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(GameController), nameof(GameController.AuthenticateSocialManager))]
-    public static class Patch_BlockGameControllerAuth
-    {
-        static bool Prefix(Il2CppSystem.Action<bool> callback, bool resetUserDeclinedFlag)
-        {
-            MelonLogger.Msg("[Universe Architect] AuthenticateSocialManager durduruldu -> callback(false).");
-            callback?.Invoke(false);
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(SocialManagerSocialImpl), "get_IsAuthenticated")]
-    public static class Patch_ForceOfflineAuthState
-    {
-        static bool Prefix(ref bool __result)
-        {
-            __result = false;
-            return false;
-        }
-    }
-}
