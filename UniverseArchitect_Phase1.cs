@@ -508,5 +508,35 @@ namespace UniverseArchitect
         }
     }
 
-    [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
+     [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
     public static class Patch_BlockSocialAuthenticate
+    {
+        static bool Prefix(Il2CppSystem.Action<bool, string> action)
+        {
+            MelonLogger.Msg("[Universe Architect] SocialManager.Authenticate durduruldu -> success=false.");
+            action?.Invoke(false, "Offline mod");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(GameController), nameof(GameController.AuthenticateSocialManager))]
+    public static class Patch_BlockGameControllerAuth
+    {
+        static bool Prefix(Il2CppSystem.Action<bool> callback, bool resetUserDeclinedFlag)
+        {
+            MelonLogger.Msg("[Universe Architect] AuthenticateSocialManager durduruldu -> callback(false).");
+            callback?.Invoke(false);
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), "get_IsAuthenticated")]
+    public static class Patch_ForceOfflineAuthState
+    {
+        static bool Prefix(ref bool __result)
+        {
+            __result = false;
+            return false;
+        }
+    }
+}
