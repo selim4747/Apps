@@ -427,6 +427,20 @@ namespace UniverseArchitect
         }
     }
 
+    // Google Play Games, APK yeniden imzalandigi icin SIGN_IN_REQUIRED donuyor.
+    // Orijinal oyun bu sonucu GamesResolutionActivity ile zorunlu giris ekranina
+    // tasiyor. Giris basarisiz olsa da oyunun offline acilabilmesi icin bu akisi
+    // durduruyoruz; LVL lisans patch'i bundan bagimsiz calismaya devam eder.
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
+    public static class Patch_OptionalPlayGamesSignIn
+    {
+        private static bool Prefix()
+        {
+            MelonLogger.Msg("[Universe Architect] Google Play Games girisi devre disi; offline devam ediliyor.");
+            return false;
+        }
+    }
+
     [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
     {
