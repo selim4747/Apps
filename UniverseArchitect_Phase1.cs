@@ -247,7 +247,6 @@ namespace UniverseArchitect
     // =========================================================================
     // 4. HARMONY YAMALARI (Rarebyte.GDT)
     // =========================================================================
-    [HarmonyPatch(typeof(General), nameof(General.proceedOneWeek))]
     public static class Patch_WeekTickAndInit
     {
         static void Postfix(Company company, Il2CppSystem.Nullable<double> fractionalWeek)
@@ -285,7 +284,6 @@ namespace UniverseArchitect
         }
     }
 
-    [HarmonyPatch(typeof(General), nameof(General.getGameSizeDurationFactor))]
     public static class Patch_SoloDevSpeed
     {
         static void Postfix(string gameSize, ref double __result)
@@ -297,7 +295,6 @@ namespace UniverseArchitect
         }
     }
 
-    [HarmonyPatch(typeof(Research), nameof(Research.getAllItems))]
     public static class Patch_InjectEngineFeatures
     {
         static void Postfix(ref Il2CppSystem.Collections.Generic.List<ResearchItem> __result)
@@ -418,7 +415,6 @@ namespace UniverseArchitect
         }
     }
 
-    [HarmonyPatch(typeof(GameGenre), nameof(GameGenre.getAll))]
     public static class Patch_CaptureGameGenre
     {
         public static GameGenre Instance;
@@ -430,21 +426,6 @@ namespace UniverseArchitect
         }
     }
 
-    // Google Play Games, APK yeniden imzalandigi icin SIGN_IN_REQUIRED donuyor.
-    // Orijinal oyun bu sonucu GamesResolutionActivity ile zorunlu giris ekranina
-    // tasiyor. Giris basarisiz olsa da oyunun offline acilabilmesi icin bu akisi
-    // durduruyoruz; LVL lisans patch'i bundan bagimsiz calismaya devam eder.
-    [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
-    public static class Patch_OptionalPlayGamesSignIn
-    {
-        public static bool Prefix()
-        {
-            MelonLogger.Msg("[Universe Architect] Google Play Games girisi devre disi; offline devam ediliyor.");
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
     {
         static void Postfix(Company company)
