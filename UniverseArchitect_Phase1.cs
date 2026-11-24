@@ -427,17 +427,6 @@ namespace UniverseArchitect
         }
     }
 
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"[NJG-Debug] Dinamik genre indeksi okunamadi, varsayilan sira kullaniliyor: {ex.Message}");
-                map["Action"] = 0; map["Adventure"] = 1; map["RPG"] = 2;
-                map["Simulation"] = 3; map["Strategy"] = 4; map["Casual"] = 5;
-            }
-            return map;
-        }
-    }
-
     [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
     {
