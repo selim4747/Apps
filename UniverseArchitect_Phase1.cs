@@ -239,7 +239,8 @@ namespace UniverseArchitect
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
-            TopicInjectorHelper.TryInjectTopics();
+            // Temel tanı sürümünde oyun sahnesine hiçbir gameplay verisi enjekte edilmez.
+            LoggerInstance.Msg($"[Universe Architect] Temel mod aktif; gameplay enjeksiyonu kapali. Sahne: {sceneName}");
         }
 
         public static int ApplyCappedModHype(int rawModHype)
