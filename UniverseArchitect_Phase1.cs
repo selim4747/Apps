@@ -15,9 +15,9 @@ namespace UniverseArchitect
     // =========================================================================
     public enum ProjectCategory
     {
-        UH,     // Ana Kanon (Tutarlilik ve Derinlik kurallarina tabi)
-        UD,     // Baloncuk Evren (Tutarlilik riski 0, Core Fandom 0, +%5 Oynanis)
-        GTBT    // Alternatif Zaman Cizgisi (Olu/yipranmis karakteri cezasiz kullanma, +%15 maliyet)
+        UH,
+        UD,
+        GTBT
     }
 
     public enum GameScale
@@ -30,10 +30,10 @@ namespace UniverseArchitect
 
     public static class BalanceCaps
     {
-        public const float MaxLoreStoryBonus = 0.08f;      // Max +%8 Hikaye
-        public const int MaxLoreBaseHype = 15;             // Max +15 Taban Hype
-        public const int MaxTotalModHype = 35;             // Tum mod kaynaklarindan max +35 Hype
-        public const float SoloBurnoutPenalty = 0.30f;     // Tukenmislikte -%30 hiz
+        public const float MaxLoreStoryBonus = 0.08f;
+        public const int MaxLoreBaseHype = 15;
+        public const int MaxTotalModHype = 35;
+        public const float SoloBurnoutPenalty = 0.30f;
     }
 
     public class CustomTopicDef
@@ -41,7 +41,7 @@ namespace UniverseArchitect
         public string Id;
         public string Name;
         public Dictionary<string, double> GenreWeights;
-        public double[] AudienceWeights; // [0] = Young, [1] = Everyone, [2] = Mature
+        public double[] AudienceWeights;
         public string SpecialBonusKey;
     }
 
@@ -216,17 +216,17 @@ namespace UniverseArchitect
         public static int PendingPostCreditsHype = 0;
 
         public static bool TopicsInjected = false;
-        public static bool ResearchInjected = false;
         public static bool LoggedGameSizeOnce = false;
+        private float _injectTimer = 0f;
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect (NJG Edition) - Faz 1 + Offline Koruma aktif ediliyor...");
+            LoggerInstance.Msg("Universe Architect (NJG Edition) - Faz 1 (Guvenli Mod) aktif ediliyor...");
             try
             {
                 var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.phase1");
                 harmony.PatchAll();
-                LoggerInstance.Msg("[Universe Architect] Tum Faz 1 ve Offline yamalari basariyla uygulandi!");
+                LoggerInstance.Msg("[Universe Architect] Faz 1 (Konular + SoloDev + Offline) yamalari uygulandi!");
             }
             catch (Exception ex)
             {
@@ -234,8 +234,15 @@ namespace UniverseArchitect
             }
         }
 
-        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        // Konulari Harmony kancasi disinda, Unity ana dongusunde guvenli sekilde enjekte et
+        public override void OnUpdate()
         {
+            if (TopicsInjected) return;
+
+            _injectTimer += Time.unscaledDeltaTime;
+            if (_injectTimer < 2.0f) return;
+            _injectTimer = 0f;
+
             TopicInjectorHelper.TryInjectTopics();
         }
 
@@ -246,19 +253,17 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 4. FAZ 1 GAMEPLAY YAMALARI (AKTIF)
+    // 4. FAZ 1 GAMEPLAY YAMALARI (IL2CPP GUVENLI)
     // =========================================================================
+
+    // NOT: Il2CppSystem.Nullable<double> parametresi native cokme yaptigi icin bilerek kaldirildi!
     [HarmonyPatch(typeof(General), nameof(General.proceedOneWeek))]
     public static class Patch_WeekTickAndInit
     {
-        static void Postfix(Company company, Il2CppSystem.Nullable<double> fractionalWeek)
+        static void Postfix(Company company)
         {
             try
             {
-                // Henuz enjekte olmadiysa ilk haftada garanti olarak tetikle
-                if (!UniverseArchitectMod.TopicsInjected)
-                    TopicInjectorHelper.TryInjectTopics();
-
                 if (company == null || !company.isCurrentlyDevelopingGame() || company.currentGame == null)
                     return;
 
@@ -304,51 +309,15 @@ namespace UniverseArchitect
         {
             if (SoloDevSystem.IsBurnedOut)
             {
-                __result *= 1.30; // Sure %30 uzar
+                __result *= 1.30;
             }
         }
     }
 
-    [HarmonyPatch(typeof(Research), nameof(Research.getAllItems))]
+    // Motor ozellikleri bu testte gecici olarak pasif (once yeni oyun + 6 konu dogrulanacak)
     public static class Patch_InjectEngineFeatures
     {
-        static void Postfix(ref Il2CppSystem.Collections.Generic.List<ResearchItem> __result)
-        {
-            try
-            {
-                if (!UniverseArchitectMod.TopicsInjected)
-                    TopicInjectorHelper.TryInjectTopics();
-
-                if (__result == null || UniverseArchitectMod.ResearchInjected) return;
-
-                foreach (var feat in Phase1Database.EngineFeatures)
-                {
-                    bool exists = false;
-                    for (int i = 0; i < __result.Count; i++)
-                    {
-                        if (__result[i].id == feat.Id) { exists = true; break; }
-                    }
-                    if (exists) continue;
-
-                    var item = new ResearchItem();
-                    item.id = feat.Id;
-                    item.category = "Engine";
-                    item.cost = new Il2CppSystem.Nullable<double>(50000 * feat.CostMultiplier);
-                    item.engineCost = new Il2CppSystem.Nullable<double>(25000 * feat.CostMultiplier);
-                    item.pointsCost = new Il2CppSystem.Nullable<double>(30);
-                    item.enginePoints = new Il2CppSystem.Nullable<int>(20);
-
-                    __result.Add(item);
-                    MelonLogger.Msg($"[Universe Architect] Motor ozelligi eklendi: {feat.Name}");
-                }
-
-                UniverseArchitectMod.ResearchInjected = true;
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Error($"[Universe Architect] Motor ozelligi enjeksiyon hatasi: {ex.Message}");
-            }
-        }
+        // Bir sonraki adimda guvenli ResearchItem alanlariyla aktif edilecek
     }
 
     public static class TopicInjectorHelper
@@ -360,11 +329,14 @@ namespace UniverseArchitect
             try
             {
                 var allTopicsAssets = UnityEngine.Resources.FindObjectsOfTypeAll<Topics>();
-                if (allTopicsAssets == null || allTopicsAssets.Length == 0) return;
+                if (allTopicsAssets == null || allTopicsAssets.Length == 0)
+                    return;
 
                 var topicsAsset = allTopicsAssets[0];
-                if (topicsAsset.topics == null) return;
+                if (topicsAsset == null || topicsAsset.topics == null)
+                    return;
 
+                MelonLogger.Msg($"[NJG-Debug] Topics asset bulundu! Mevcut konu sayisi: {topicsAsset.topics.Count}");
                 var genreIndexMap = BuildRuntimeGenreIndexMap();
 
                 foreach (var def in Phase1Database.Topics)
@@ -389,7 +361,6 @@ namespace UniverseArchitect
                         }
                     }
                     newTopic.genreWeightings = new GenreWeightings(g[0], g[1], g[2], g[3], g[4], g[5]);
-
                     newTopic.audienceWeightings = new AudienceWeightings(
                         def.AudienceWeights[0],
                         def.AudienceWeights[1],
@@ -404,7 +375,7 @@ namespace UniverseArchitect
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"[Universe Architect] Konu enjeksiyon hatasi: {ex.Message}");
+                MelonLogger.Error($"[Universe Architect] Konu enjeksiyon hatasi: {ex}");
             }
         }
 
@@ -455,10 +426,7 @@ namespace UniverseArchitect
         static void Postfix(GameGenre __instance)
         {
             if (Instance == null && __instance != null)
-            {
                 Instance = __instance;
-                TopicInjectorHelper.TryInjectTopics();
-            }
         }
     }
 
@@ -508,7 +476,7 @@ namespace UniverseArchitect
         }
     }
 
-     [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
     public static class Patch_BlockSocialAuthenticate
     {
         static bool Prefix(Il2CppSystem.Action<bool, string> action)
