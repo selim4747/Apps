@@ -227,7 +227,14 @@ namespace UniverseArchitect
         {
             LoggerInstance.Msg("Universe Architect (NJG Edition) - Faz 1 yuklendi!");
             var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.phase1");
-            harmony.PatchAll();
+            // Tanı sürümü: Play Games oturum ekranını offline moda alır; gameplay
+            // patch'lerini uygulamaz. Böylece native kapanmanın mod patch'lerinden
+            // kaynaklanıp kaynaklanmadığı güvenli biçimde ayrıştırılabilir.
+            harmony.Patch(
+                AccessTools.Method(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate)),
+                prefix: new HarmonyMethod(typeof(Patch_OptionalPlayGamesSignIn), nameof(Patch_OptionalPlayGamesSignIn.Prefix))
+            );
+            LoggerInstance.Msg("[Universe Architect] Tanı modu: yalnızca Play Games offline patch'i etkin.");
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
