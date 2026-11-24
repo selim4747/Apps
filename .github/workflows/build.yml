@@ -1,0 +1,33 @@
+name: Build Universe Architect Mod
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Depoyu indir (Checkout)
+        uses: actions/checkout@v4
+
+      - name: .NET 6 SDK kur
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: libs klasorunu kontrol et
+        run: |
+          echo "libs/ icindeki DLL dosyalari:"
+          ls -la libs/
+
+      - name: Modu derle (Release)
+        run: dotnet build UniverseArchitect.csproj -c Release
+
+      - name: UniverseArchitect.dll dosyasini cikti olarak yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: UniverseArchitect-Phase1-DLL
+          path: bin/Release/net6.0/UniverseArchitect.dll

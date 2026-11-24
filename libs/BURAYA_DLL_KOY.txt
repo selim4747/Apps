@@ -1,0 +1,14 @@
+BURAYA TELEFONDAN SU DLL DOSYALARINI KOPYALA:
+
+1. MelonLoader/net6/ klasorunden:
+   - MelonLoader.dll
+   - 0Harmony.dll
+   - Il2CppInterop.Runtime.dll
+
+2. MelonLoader/Il2CppAssemblies/ klasorunden:
+   - Assembly-CSharp.dll
+   - Il2Cppmscorlib.dll
+   - UnityEngine.CoreModule.dll
+   - UnityEngine.dll (varsa)
+
+NOT: Bu DLL'leri GitHub depona (ozel / private repo acmani oneririm) `libs/` klasoru icine yuklediginde `.csproj` dosyasi hepsini otomatik olarak gorup derleyecektir.
