@@ -40,10 +40,8 @@ namespace UniverseArchitect
     {
         public string Id;
         public string Name;
-        // Tur adina gore agirlik (0.6 = zayif, 0.8 = orta, 1.0 = mukemmel)
         public Dictionary<string, double> GenreWeights;
-        // [0] = Young, [1] = Everyone, [2] = Mature
-        public double[] AudienceWeights;
+        public double[] AudienceWeights; // [0] = Young, [1] = Everyone, [2] = Mature
         public string SpecialBonusKey;
     }
 
@@ -60,7 +58,6 @@ namespace UniverseArchitect
 
     public static class Phase1Database
     {
-        // 6 Yeni Konu ve Gercek GDT Tur/Kitle Agirliklari
         public static readonly List<CustomTopicDef> Topics = new List<CustomTopicDef>
         {
             new CustomTopicDef
@@ -137,7 +134,6 @@ namespace UniverseArchitect
             }
         };
 
-        // 3 Ana Motor Ozelligi + Post-Credits & Mod Destegi
         public static readonly List<CustomEngineFeatureDef> EngineFeatures = new List<CustomEngineFeatureDef>
         {
             new CustomEngineFeatureDef
@@ -225,17 +221,22 @@ namespace UniverseArchitect
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect (NJG Edition) - Faz 1 yuklendi!");
-            // Güvenli temel sürüm: Play Games akışına müdahale edilmez ve
-            // gameplay patch'leri uygulanmaz. Böylece native kapanma riski
-            // oluşturan sahte oturum durumu üretilmez.
-            LoggerInstance.Msg("[Universe Architect] Temel mod aktif; Play Games ve gameplay patch'leri degistirilmedi.");
+            LoggerInstance.Msg("Universe Architect (NJG Edition) - Offline koruma aktif ediliyor...");
+            try
+            {
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.offline");
+                harmony.PatchAll();
+                LoggerInstance.Msg("[Universe Architect] Google Play Games offline yamalari basariyla uygulandi!");
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Error($"[Universe Architect] Harmony yama hatasi: {ex}");
+            }
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
-            // Temel tanı sürümünde oyun sahnesine hiçbir gameplay verisi enjekte edilmez.
-            LoggerInstance.Msg($"[Universe Architect] Temel mod aktif; gameplay enjeksiyonu kapali. Sahne: {sceneName}");
+            LoggerInstance.Msg($"[Universe Architect] Offline test modu aktif; gameplay enjeksiyonu kapali. Sahne: {sceneName}");
         }
 
         public static int ApplyCappedModHype(int rawModHype)
@@ -245,7 +246,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 4. HARMONY YAMALARI (Rarebyte.GDT)
+    // 4. GAMEPLAY YAMALARI (Simdilik pasif — offline giris testinden sonra acilacak)
     // =========================================================================
     public static class Patch_WeekTickAndInit
     {
@@ -290,7 +291,7 @@ namespace UniverseArchitect
         {
             if (SoloDevSystem.IsBurnedOut)
             {
-                __result *= 1.30; // Sure %30 uzar
+                __result *= 1.30;
             }
         }
     }
@@ -376,7 +377,7 @@ namespace UniverseArchitect
             UniverseArchitectMod.TopicsInjected = true;
         }
 
-                private static Dictionary<string, int> BuildRuntimeGenreIndexMap()
+        private static Dictionary<string, int> BuildRuntimeGenreIndexMap()
         {
             var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             try
@@ -448,6 +449,51 @@ namespace UniverseArchitect
                 UniverseArchitectMod.PendingPostCreditsHype = 0;
                 MelonLogger.Msg($"[Universe Architect] Post-Credits Hype aktarildi: +{capped}");
             }
+        }
+    }
+
+    // =========================================================================
+    // 5. GOOGLE PLAY GAMES OFFLINE YAMALARI (Giris & Native SDK Engelleme)
+    // =========================================================================
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), "InitPlayGamesPlatform")]
+    public static class Patch_BlockInitPlayGames
+    {
+        static bool Prefix()
+        {
+            MelonLogger.Msg("[Universe Architect] InitPlayGamesPlatform durduruldu (Native SDK uyandirilmadi).");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
+    public static class Patch_BlockSocialAuthenticate
+    {
+        static bool Prefix(Il2CppSystem.Action<bool, string> action)
+        {
+            MelonLogger.Msg("[Universe Architect] SocialManager.Authenticate durduruldu -> success=false.");
+            action?.Invoke(false, "Offline mod");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(GameController), nameof(GameController.AuthenticateSocialManager))]
+    public static class Patch_BlockGameControllerAuth
+    {
+        static bool Prefix(Il2CppSystem.Action<bool> callback, bool resetUserDeclinedFlag)
+        {
+            MelonLogger.Msg("[Universe Architect] AuthenticateSocialManager durduruldu -> callback(false).");
+            callback?.Invoke(false);
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), "get_IsAuthenticated")]
+    public static class Patch_ForceOfflineAuthState
+    {
+        static bool Prefix(ref bool __result)
+        {
+            __result = false;
+            return false;
         }
     }
 }
