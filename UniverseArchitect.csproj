@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>UniverseArchitect</AssemblyName>
+    <RootNamespace>UniverseArchitect</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <!-- libs/ klasorune attigin tum oyun ve LemonLoader DLL'lerini otomatik tanir -->
+  <ItemGroup>
+    <Reference Include="libs/*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
