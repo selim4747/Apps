@@ -6,9 +6,10 @@ using System.Text.Json;
 using MelonLoader;
 using HarmonyLib;
 using UnityEngine;
+using Il2CppInterop.Runtime;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.2.1", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "2.0.0", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
@@ -18,7 +19,6 @@ namespace UniverseArchitect
     // =========================================================================
     public static class ModSettings
     {
-        // Test bittiginde normal hiza donmek icin bunu false yapman yeterli
         public const bool TestMode10xResearch = true;
         public const double ResearchMultiplier = 10.0;
         public const double TestStarterResearchBoost = 100.0;
@@ -26,16 +26,29 @@ namespace UniverseArchitect
 
     public enum ProjectCategory
     {
-        UH,     // Ana Kanon
-        UD,     // Baloncuk Evren (+%5 skor)
-        GTBT    // Alternatif Zaman Cizgisi
+        MainUniverse,   // Ana Evren
+        SideUniverse,   // Yan Evren
+        AltTimeline     // Alternatif Zaman
+    }
+
+    public static class CategoryLabels
+    {
+        public static string ToTurkish(ProjectCategory cat)
+        {
+            switch (cat)
+            {
+                case ProjectCategory.SideUniverse: return "Yan Evren";
+                case ProjectCategory.AltTimeline:  return "Alternatif Zaman";
+                default:                           return "Ana Evren";
+            }
+        }
     }
 
     public static class BalanceCaps
     {
-        public const double MaxLoreScoreBonus = 0.08;   // Max +%8 Skor
-        public const int MaxLoreBaseHype = 15;          // Max +15 Taban Hype
-        public const int MaxTotalModHype = 35;          // Tek oyunda tum mod kaynaklarindan max +35 Hype
+        public const double MaxLoreScoreBonus = 0.08;
+        public const int MaxLoreBaseHype = 15;
+        public const int MaxTotalModHype = 35;
     }
 
     public class CustomTopicDef
@@ -44,7 +57,7 @@ namespace UniverseArchitect
         public string Name;
         public string IconTemplateKeyword;
         public Dictionary<string, double> GenreWeights;
-        public double[] AudienceWeights; // [0] = Young, [1] = Everyone, [2] = Mature
+        public double[] AudienceWeights;
         public double ScoreBonusMultiplier;
         public int BonusHype;
         public string BonusLabel;
@@ -67,6 +80,7 @@ namespace UniverseArchitect
         public int ReleaseWeek { get; set; }
         public double FinalScore { get; set; }
         public string Category { get; set; }
+        public int IntegrityAfter { get; set; }
         public List<string> UsedModFeatures { get; set; } = new List<string>();
         public string RecordedAtUtc { get; set; }
     }
@@ -241,7 +255,8 @@ namespace UniverseArchitect
                     if (loaded != null)
                     {
                         Current = loaded;
-                        MelonLogger.Msg($"[Universe Architect] Evren kaydi yuklendi! ({Current.ReleasedGames.Count} oyun, Lore: {Current.LoreLinkedGameCount}, Bekleyen Post-Credits Hype: {Current.PendingPostCreditsHype})");
+                        Current.CanonIntegrity = Math.Clamp(Current.CanonIntegrity, 0, 100);
+                        MelonLogger.Msg($"[Universe Architect] Evren kaydi yuklendi! ({Current.ReleasedGames.Count} oyun, Tutarlilik: {Current.CanonIntegrity}/100, Lore: {Current.LoreLinkedGameCount})");
                         return;
                     }
                 }
@@ -268,6 +283,11 @@ namespace UniverseArchitect
             }
         }
 
+        public static void AdjustIntegrity(int delta)
+        {
+            Current.CanonIntegrity = Math.Clamp(Current.CanonIntegrity + delta, 0, 100);
+        }
+
         public static void RecordReleasedGame(Game game, string topicId, double score, ProjectCategory category, List<string> modFeatures)
         {
             Current.ReleasedGames.Add(new ReleasedGameRecord
@@ -279,7 +299,8 @@ namespace UniverseArchitect
                 SequelTo = game != null ? (game.sequelTo ?? "") : "",
                 ReleaseWeek = game != null ? game.releaseWeek : 0,
                 FinalScore = Math.Round(score, 2),
-                Category = category.ToString(),
+                Category = CategoryLabels.ToTurkish(category),
+                IntegrityAfter = Current.CanonIntegrity,
                 UsedModFeatures = modFeatures ?? new List<string>(),
                 RecordedAtUtc = DateTime.UtcNow.ToString("o")
             });
@@ -456,9 +477,91 @@ namespace UniverseArchitect
             }
         }
     }
+    // =========================================================================
+    // 4. FAZ 2: EVREN CEKIRDEGI 3 BUTONLU SECIM PENCERESI (KANCASIZ)
+    // =========================================================================
+    public static class UniverseChoicePopupSystem
+    {
+        private static readonly HashSet<IntPtr> _promptedGames = new HashSet<IntPtr>();
+        private static readonly Dictionary<IntPtr, ProjectCategory> _gameCategories = new Dictionary<IntPtr, ProjectCategory>();
+
+        public static ProjectCategory GetCategoryForGame(Game game)
+        {
+            if (game != null && game.Pointer != IntPtr.Zero && _gameCategories.TryGetValue(game.Pointer, out var cat))
+                return cat;
+            return UniverseArchitectMod.ActiveProjectCategory;
+        }
+
+        public static void PollForNewGame(Company company)
+        {
+            if (company == null || !company.isCurrentlyDevelopingGame() || company.currentGame == null)
+                return;
+
+            var game = company.currentGame;
+            if (game.Pointer == IntPtr.Zero || _promptedGames.Contains(game.Pointer))
+                return;
+
+            try
+            {
+                var panel = UnityEngine.Object.FindObjectOfType<PanelNotifications>();
+                if (panel == null) return;
+
+                // Oyunun kendi acik bir penceresi varsa bitmesini bekle
+                if (panel.IsNotificationVisible) return;
+
+                _promptedGames.Add(game.Pointer);
+                IntPtr capturedGamePtr = game.Pointer;
+                string title = !string.IsNullOrEmpty(game.title) ? game.title : "Yeni Proje";
+                int integrity = UniverseSaveManager.Current.CanonIntegrity;
+
+                var notif = new Notification(
+                    $"Evren Konumu: {title}",
+                    $"Bu proje evreninin neresinde yer alacak?\n\n" +
+                    $"• Ana Evren (Tutarlılık: {integrity}/100): Kanon bonusu ve devam oyunu gücü, kötü puan tutarlılığı düşürür.\n" +
+                    $"• Yan Evren: Güvenli spin-off (+%5 Skor, tutarlılık etkilenmez).\n" +
+                    $"• Alternatif Zaman: 'Ya farklı olsaydı?' (+10 Hype, tutarlılık etkilenmez)."
+                );
+
+                notif.buttonText = new Il2CppSystem.Collections.Generic.List<string>();
+                notif.buttonText.Add("Ana Evren");
+                notif.buttonText.Add("Yan Evren");
+                notif.buttonText.Add("Alternatif Zaman");
+
+                Action<Notification, Il2CppSystem.Action, int> onClickAction = (n, cb, selectedOption) =>
+                {
+                    try
+                    {
+                        ProjectCategory chosen = ProjectCategory.MainUniverse;
+                        if (selectedOption == 1) chosen = ProjectCategory.SideUniverse;
+                        else if (selectedOption == 2) chosen = ProjectCategory.AltTimeline;
+
+                        UniverseArchitectMod.ActiveProjectCategory = chosen;
+                        _gameCategories[capturedGamePtr] = chosen;
+
+                        MelonLogger.Msg($"[Faz 2] '{title}' icin secilen evren konumu: {CategoryLabels.ToTurkish(chosen)} (Buton: {selectedOption})");
+
+                        try { panel.Dismiss(n); } catch { }
+                        try { cb?.Invoke(); } catch { }
+                    }
+                    catch (Exception innerEx)
+                    {
+                        MelonLogger.Warning($"[Faz 2] Secim callback hatasi: {innerEx.Message}");
+                    }
+                };
+
+                var il2cppDelegate = DelegateSupport.ConvertDelegate<NotificationButton.NotificationButtonDelegate>(onClickAction);
+                panel.ShowGenericNotification(notif, il2cppDelegate, null);
+                MelonLogger.Msg($"[Faz 2] 3 butonlu Evren Secim penceresi acildi: '{title}'");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"[Faz 2] Secim penceresi acilamadi (varsayilan Ana Evren ile devam): {ex.Message}");
+            }
+        }
+    }
 
     // =========================================================================
-    // 4. 10X ARASTIRMA PUANI TURBO SISTEMI (KANCASIZ - TEST MODU)
+    // 5. 10X ARASTIRMA PUANI TURBO SISTEMI (KANCASIZ - TEST MODU)
     // =========================================================================
     public static class ResearchTurboSystem
     {
@@ -478,7 +581,6 @@ namespace UniverseArchitect
                 _starterBoostGiven = false;
             }
 
-            // 5 motor ozelligini dogrudan bu sirketin Arastirma menusune (availableResearch) ekle
             EngineFeatureInjectorHelper.SyncWithCompany(company);
 
             if (!ModSettings.TestMode10xResearch) return;
@@ -501,8 +603,8 @@ namespace UniverseArchitect
                     MelonLogger.Msg($"[NJG-Turbo] 10x Arastirma Turbo aktif! (+{ModSettings.TestStarterResearchBoost} baslangic RP eklendi -> Toplam: {boosted:F0})");
                     NotificationHelper.Show(
                         company,
-                        "10x Araştırma Turbo + 5 Motor Hazır!",
-       $"+{ModSettings.TestStarterResearchBoost:F0} Ar-Ge puanı eklendi ve 5 NJG motor özelliği Araştırma menüne açıldı!"
+                        "Faz 2 Evren Çekirdeği + 10x Turbo Hazır!",
+                        $"Bundan sonraki her yeni oyununda Ana Evren / Yan Evren / Alternatif Zaman seçim penceresi açılacak! (+{ModSettings.TestStarterResearchBoost:F0} Ar-Ge puanı eklendi.)"
                     );
                 }
             }
@@ -549,31 +651,32 @@ namespace UniverseArchitect
         }
     }
     // =========================================================================
-    // 5. ANA MOD GIRISI
+    // 6. ANA MOD GIRISI
     // =========================================================================
     public class UniverseArchitectMod : MelonMod
     {
-        public static ProjectCategory ActiveProjectCategory = ProjectCategory.UH;
+        public static ProjectCategory ActiveProjectCategory = ProjectCategory.MainUniverse;
         public static Company ActiveCompany = null;
         public static bool TopicsInjected = false;
         public static bool EngineFeaturesInjected = false;
         private float _injectTimer = 0f;
         private float _turboTimer = 0f;
         private float _companySyncTimer = 0f;
+        private float _popupPollTimer = 0f;
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect v1.2.1 (Gercek Ar-Ge Enjeksiyonu + EngineParts + 10x Turbo) baslatiliyor...");
+            LoggerInstance.Msg("Universe Architect v2.0.0 (Faz 2: Evren Cekirdegi + 3 Butonlu Secim + Tutarlilik) baslatiliyor...");
             UniverseSaveManager.Load();
 
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v121");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v200");
                 harmony.PatchAll();
 
                 int patchedCount = 0;
                 foreach (var _ in harmony.GetPatchedMethods()) patchedCount++;
-                LoggerInstance.Msg($"[Universe Architect] Tum v1.2.1 yamalari uygulandi! (Yamalanan metot sayisi: {patchedCount})");
+                LoggerInstance.Msg($"[Universe Architect] Tum v2.0.0 yamalari uygulandi! (Yamalanan metot sayisi: {patchedCount})");
             }
             catch (Exception ex)
             {
@@ -598,8 +701,19 @@ namespace UniverseArchitect
                 }
             }
 
-            // 2) 10x Arastirma Puan Carpani
-            if (ModSettings.TestMode10xResearch && ActiveCompany != null)
+            if (ActiveCompany == null) return;
+
+            // 2) Faz 2: Yeni oyun basladiginda 3 butonlu Evren Secim penceresini ac (1 sn aralikla)
+            _popupPollTimer += Time.unscaledDeltaTime;
+            if (_popupPollTimer >= 1.0f)
+            {
+                _popupPollTimer = 0f;
+                try { UniverseChoicePopupSystem.PollForNewGame(ActiveCompany); }
+                catch { }
+            }
+
+            // 3) 10x Arastirma Puan Carpani
+            if (ModSettings.TestMode10xResearch)
             {
                 _turboTimer += Time.unscaledDeltaTime;
                 if (_turboTimer >= 0.5f)
@@ -610,8 +724,8 @@ namespace UniverseArchitect
                 }
             }
 
-            // 3) Arastirilan 5 motor ozelliginin engineParts listesine senkronizasyonu (3 sn aralikla)
-            if (ActiveCompany != null && EngineFeaturesInjected)
+            // 4) Arastirilan 5 motor ozelliginin engineParts listesine senkronizasyonu
+            if (EngineFeaturesInjected)
             {
                 _companySyncTimer += Time.unscaledDeltaTime;
                 if (_companySyncTimer >= 3.0f)
@@ -630,7 +744,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 6. KONU ENJEKSIYONU (KANCASIZ)
+    // 7. KONU ENJEKSIYONU (KANCASIZ)
     // =========================================================================
     public static class TopicInjectorHelper
     {
@@ -694,7 +808,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 7. MOTOR / AR-GE ENJEKSIYONU (GERCEK allItems + Company.availableResearch)
+    // 8. MOTOR / AR-GE ENJEKSIYONU (GERCEK allItems + Company.availableResearch)
     // =========================================================================
     public static class EngineFeatureInjectorHelper
     {
@@ -714,7 +828,6 @@ namespace UniverseArchitect
                 var research = researchAssets[0];
                 if (research == null) return;
 
-                // Hem private allItems alanini hem getAllItems() sonucunu al
                 var privateAllItems = SafeReflection.AsResearchList(SafeReflection.GetMember(research, "allItems"));
                 var getterAllItems = research.getAllItems();
                 var masterList = (privateAllItems != null && privateAllItems.Count > 0) ? privateAllItems : getterAllItems;
@@ -722,7 +835,6 @@ namespace UniverseArchitect
                 if (masterList == null || masterList.Count == 0)
                     return;
 
-                // Savegame yerine GERCEK arastirilabilir motor parcasi sablonu sec (BetterUI / betterDialogs / dialogueTree)
                 ResearchItem template = FindResearchableEngineTemplate(research, masterList);
                 if (template == null) return;
 
@@ -796,14 +908,12 @@ namespace UniverseArchitect
                 bool isCompleted = ContainsId(completed, item.id);
                 bool isEnginePart = ContainsId(engineParts, item.id);
 
-                // Arastirma tamamlandiysa mutlaka engineParts listesine de ekle (Ozel Motor ekraninda gorunsun)
                 if (isCompleted && engineParts != null && !isEnginePart)
                 {
                     engineParts.Add(item);
                     unlockedToEngine++;
                 }
 
-                // Henuz arastirilmadiysa dogrudan Arastirma menusune (availableResearch) koy
                 if (!isCompleted && !isEnginePart && avail != null && !ContainsId(avail, item.id))
                 {
                     avail.Add(item);
@@ -827,7 +937,6 @@ namespace UniverseArchitect
                 if (candidate != null) return candidate;
             }
 
-            // Bulunamazsa allItems icinde Savegame olmayan ilk Engine/Story/Dialogs parcasini al
             for (int i = 0; i < allItems.Count; i++)
             {
                 var c = allItems[i];
@@ -861,9 +970,8 @@ namespace UniverseArchitect
             return FindById(list, id) != null;
         }
     }
-
     // =========================================================================
-    // 8. 5 MOTOR OZELLIGI MEKANIKLERI + KONU BONUSLARI + JSON KAYIT
+    // 9. INCELEME: FAZ 2 EVREN CEKIRDEGI + 5 MOTOR + 6 KONU + JSON KAYIT
     // =========================================================================
     [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
@@ -885,6 +993,7 @@ namespace UniverseArchitect
 
                 string title = !string.IsNullOrEmpty(game.title) ? game.title : "Yeni Oyun";
                 string topicId = game.topic != null ? game.topic.id : null;
+                ProjectCategory category = UniverseChoicePopupSystem.GetCategoryForGame(game);
 
                 int totalModHype = 0;
                 double totalScoreMult = 1.0;
@@ -912,7 +1021,7 @@ namespace UniverseArchitect
                     activeBonusNotes.Add($"{customTopic.Name}: {customTopic.BonusLabel}");
                 }
 
-                // C) 5 Yeni Motor Ozelliginin Gercek Oyun Ici Mekanikleri (dump.cs kesin alanlariyla!)
+                // C) 5 Yeni Motor Ozelliginin Gercek Oyun Ici Mekanikleri
                 var featureIds = ExtractAllFeatureIds(game);
 
                 if (featureIds.Contains("njg_lore_link"))
@@ -958,28 +1067,55 @@ namespace UniverseArchitect
                     totalScoreMult *= 1.04;
                     totalModHype += 8;
 
-                    if (SafeReflection.TryGetNumericMember(company, out double fans, out string fansField, "fans", "Fans"))
+                    double bonusFans = Math.Max(50.0, Math.Round(company.fans * 0.05));
+                    company.adjustFans(bonusFans);
+                    activeBonusNotes.Add($"Resmi Mod Desteği (+%4 Skor, +8 Hype, +{bonusFans:F0} Hayran)");
+                }
+
+                // D) FAZ 2: ANA EVREN / YAN EVREN / ALTERNATIF ZAMAN MEKANIKLERI
+                int integrity = UniverseSaveManager.Current.CanonIntegrity;
+                if (category == ProjectCategory.MainUniverse)
+                {
+                    if (integrity >= 80)
                     {
-                        double bonusFans = Math.Max(50.0, Math.Round(fans * 0.05));
-                        SafeReflection.TrySetNumericMember(company, fansField, fans + bonusFans);
-                        activeBonusNotes.Add($"Resmi Mod Desteği (+%4 Skor, +8 Hype, +{bonusFans:F0} Hayran)");
+                        totalScoreMult *= 1.04;
+                        totalModHype += 5;
+                        activeBonusNotes.Add($"Ana Evren [Tutarlılık {integrity}/100] (+%4 Skor, +5 Hype)");
+                    }
+                    else if (integrity >= 50)
+                    {
+                        totalScoreMult *= 1.02;
+                        totalModHype += 2;
+                        activeBonusNotes.Add($"Ana Evren [Tutarlılık {integrity}/100] (+%2 Skor, +2 Hype)");
                     }
                     else
                     {
-                        activeBonusNotes.Add("Resmi Mod Desteği (+%4 Skor, +8 Hype)");
+                        totalScoreMult *= 0.96;
+                        activeBonusNotes.Add($"Ana Evren Çatlağı! [Tutarlılık {integrity}/100] (-%4 Skor)");
+                    }
+
+                    // Ana Evren devam oyunu bonusu
+                    if (!string.IsNullOrEmpty(game.sequelTo))
+                    {
+                        totalScoreMult *= 1.03;
+                        activeBonusNotes.Add("Ana Evren Devam Oyunu (+%3 Skor)");
                     }
                 }
-
-                // D) UD (Baloncuk Evren) kategorisi bonusu
-                if (UniverseArchitectMod.ActiveProjectCategory == ProjectCategory.UD)
+                else if (category == ProjectCategory.SideUniverse)
                 {
                     totalScoreMult *= 1.05;
+                    activeBonusNotes.Add("Yan Evren (+%5 Skor, Tutarlılık korundu)");
+                }
+                else if (category == ProjectCategory.AltTimeline)
+                {
+                    totalModHype += 10;
+                    activeBonusNotes.Add("Alternatif Zaman (+10 Hype, Tutarlılık korundu)");
                 }
 
                 // E) Global Denge Tavanlariyla Skor & Hype Uygula
-                if (totalScoreMult > 1.0)
+                if (totalScoreMult != 1.0)
                 {
-                    game.score = Math.Min(10.0, game.score * totalScoreMult);
+                    game.score = Math.Clamp(game.score * totalScoreMult, 1.0, 10.0);
                 }
 
                 if (totalModHype > 0)
@@ -988,17 +1124,34 @@ namespace UniverseArchitect
                     company.adjustHype(cappedHype);
                 }
 
+                // F) Ana Evren Tutarlilik Guncellemesi (Oyun puanina gore)
+                if (category == ProjectCategory.MainUniverse)
+                {
+                    if (game.score >= 7.5)
+                    {
+                        UniverseSaveManager.AdjustIntegrity(+6);
+                        activeBonusNotes.Add($"Kanon Güçlendi! (Tutarlılık -> {UniverseSaveManager.Current.CanonIntegrity}/100)");
+                    }
+                    else if (game.score < 5.5)
+                    {
+                        UniverseSaveManager.AdjustIntegrity(-12);
+                        double lostFans = Math.Min(company.fans * 0.05, 500.0);
+                        if (lostFans >= 10.0) company.adjustFans(-lostFans);
+                        activeBonusNotes.Add($"Lore Hasarı! (Tutarlılık -> {UniverseSaveManager.Current.CanonIntegrity}/100)");
+                    }
+                }
+
                 if (activeBonusNotes.Count > 0)
                 {
                     NotificationHelper.Show(
                         company,
-                        $"NJG Mod Bonusları: {title}",
+                        $"[{CategoryLabels.ToTurkish(category)}] {title}",
                         string.Join(" | ", activeBonusNotes)
                     );
                 }
 
-                UniverseSaveManager.RecordReleasedGame(game, topicId, game.score, UniverseArchitectMod.ActiveProjectCategory, usedModFeatures);
-                MelonLogger.Msg($"[Universe Architect] Oyun kaydedildi: '{title}' (Konu: {topicId ?? "standart"}, Toplam Ozellik: {featureIds.Count}, Motor Modlari: {usedModFeatures.Count}, Skor: {game.score:F2})");
+                UniverseSaveManager.RecordReleasedGame(game, topicId, game.score, category, usedModFeatures);
+                MelonLogger.Msg($"[Universe Architect] Oyun kaydedildi: '{title}' | {CategoryLabels.ToTurkish(category)} | Tutarlilik: {UniverseSaveManager.Current.CanonIntegrity}/100 | Skor: {game.score:F2}");
             }
             catch (Exception ex)
             {
@@ -1011,11 +1164,9 @@ namespace UniverseArchitect
             var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (game == null) return ids;
 
-            // dump.cs kesin alanlari: Game.features / featuresInternal / featureLog
             SafeReflection.CollectIdsFromIl2CppList(SafeReflection.GetMember(game, "features", "featuresInternal"), ids);
             SafeReflection.CollectIdsFromIl2CppList(SafeReflection.GetMember(game, "featureLog"), ids);
 
-            // dump.cs kesin alanlari: EngineType.partsIds ve EngineType.convertedParts
             var engineObj = SafeReflection.GetMember(game, "engine");
             if (engineObj != null)
             {
@@ -1028,7 +1179,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 9. GOOGLE PLAY GAMES OFFLINE YAMALARI (GUVENLIK KILIDI)
+    // 10. GOOGLE PLAY GAMES OFFLINE YAMALARI (GUVENLIK KILIDI)
     // =========================================================================
     [HarmonyPatch(typeof(SocialManagerSocialImpl), "InitPlayGamesPlatform")]
     public static class Patch_BlockInitPlayGames
