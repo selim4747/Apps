@@ -6,16 +6,18 @@ using System.Text.Json;
 using MelonLoader;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.Events;
 using Il2CppInterop.Runtime;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "3.0.1", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "3.1.0", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
 {
     // =========================================================================
-    // 1. TEST AYARLARI, VERI MODELLERI, 10 ARKETIP & 3x3 KAYDIRICI VERITABANI
+    // 1. TEST AYARLARI, VERI MODELLERI, 4 ROL, 10 ARKETIP & 3x3 KAYDIRICI
     // =========================================================================
     public static class ModSettings
     {
@@ -39,6 +41,14 @@ namespace UniverseArchitect
         EpicAdventure,  // Epik Macera
         SciFiTactical,  // Bilim Kurgu & Taktik
         LightComedy     // Hafif & Mizahi
+    }
+
+    public enum CharacterRole
+    {
+        Protagonist,    // Basrol
+        Villain,        // Kotu Adam
+        Sidekick,       // Yardimci
+        Minor           // Herhangi Bir Adam
     }
 
     public static class CategoryLabels
@@ -65,6 +75,17 @@ namespace UniverseArchitect
                 default:                         return "Belirlenmedi";
             }
         }
+
+        public static string RoleToTurkish(CharacterRole role)
+        {
+            switch (role)
+            {
+                case CharacterRole.Villain:  return "Kötü Adam";
+                case CharacterRole.Sidekick: return "Yardımcı";
+                case CharacterRole.Minor:    return "Herhangi Bir Adam";
+                default:                     return "Başrol";
+            }
+        }
     }
 
     public static class BalanceCaps
@@ -72,7 +93,7 @@ namespace UniverseArchitect
         public const double MaxLoreScoreBonus = 0.08;
         public const int MaxLoreBaseHype = 15;
         public const int MaxTotalModHype = 35;
-        public const int StageSliderBudgetPct = 180; // Her 3'lu asamada max %180 odak butcesi
+        public const float StageSliderBudget = 1.80f; // Her 3'lu asamada max %180 odak butcesi
     }
 
     public class CustomTopicDef
@@ -115,9 +136,10 @@ namespace UniverseArchitect
         public string Name { get; set; }
         public string ArchetypeId { get; set; }
         public string ArchetypeName { get; set; }
+        public string LastRole { get; set; } = "Başrol";
         public float[] Sliders { get; set; } = new float[9];
         public string DebutGame { get; set; }
-        public string Status { get; set; } = "Normal"; // Yildiz, Sevilen, Normal, Fiyasko
+        public string Status { get; set; } = "Normal"; // Yildiz, Kult, Sevilen, Normal, Fiyasko
         public int Popularity { get; set; } = 50;
         public int GamesAppeared { get; set; } = 0;
         public int ConsecutiveUses { get; set; } = 0;
@@ -129,6 +151,7 @@ namespace UniverseArchitect
         public string ExistingCharacterId;
         public string Name;
         public string ArchetypeId;
+        public CharacterRole Role = CharacterRole.Protagonist;
         public float[] Sliders = new float[9];
     }
 
@@ -144,6 +167,7 @@ namespace UniverseArchitect
         public string Category { get; set; }
         public int IntegrityAfter { get; set; }
         public string CharacterName { get; set; }
+        public List<string> CastSummary { get; set; } = new List<string>();
         public List<string> UsedModFeatures { get; set; } = new List<string>();
         public string RecordedAtUtc { get; set; }
     }
@@ -285,10 +309,7 @@ namespace UniverseArchitect
         {
             if (string.IsNullOrEmpty(id)) return Archetypes[0];
             for (int i = 0; i < Archetypes.Count; i++)
-            {
-                if (string.Equals(Archetypes[i].Id, id, StringComparison.OrdinalIgnoreCase))
-                    return Archetypes[i];
-            }
+                if (string.Equals(Archetypes[i].Id, id, StringComparison.OrdinalIgnoreCase)) return Archetypes[i];
             return Archetypes[0];
         }
 
@@ -423,15 +444,8 @@ namespace UniverseArchitect
             }
         }
 
-        public static void AdjustIntegrity(int delta)
-        {
-            Current.CanonIntegrity = Math.Clamp(Current.CanonIntegrity + delta, 0, 100);
-        }
-
-        public static void AdjustLoreBarrier(int delta)
-        {
-            Current.LoreBarrier = Math.Clamp(Current.LoreBarrier + delta, 0, 100);
-        }
+        public static void AdjustIntegrity(int delta) => Current.CanonIntegrity = Math.Clamp(Current.CanonIntegrity + delta, 0, 100);
+        public static void AdjustLoreBarrier(int delta) => Current.LoreBarrier = Math.Clamp(Current.LoreBarrier + delta, 0, 100);
 
         public static CharacterRecord FindCharacterById(string id)
         {
@@ -441,16 +455,16 @@ namespace UniverseArchitect
             return null;
         }
 
-        public static void RestOtherCharacters(string usedCharId)
+        public static void RestUnusedCharacters(HashSet<string> usedCharIds)
         {
             for (int i = 0; i < Current.Characters.Count; i++)
             {
-                if (Current.Characters[i].Id != usedCharId)
+                if (usedCharIds == null || !usedCharIds.Contains(Current.Characters[i].Id))
                     Current.Characters[i].ConsecutiveUses = 0;
             }
         }
 
-        public static void RecordReleasedGame(Game game, string topicId, double score, ProjectCategory category, List<string> modFeatures, string charName)
+        public static void RecordReleasedGame(Game game, string topicId, double score, ProjectCategory category, List<string> modFeatures, List<string> castSummary)
         {
             Current.ReleasedGames.Add(new ReleasedGameRecord
             {
@@ -463,7 +477,8 @@ namespace UniverseArchitect
                 FinalScore = Math.Round(score, 2),
                 Category = CategoryLabels.ToTurkish(category),
                 IntegrityAfter = Current.CanonIntegrity,
-                CharacterName = charName ?? "",
+                CharacterName = (castSummary != null && castSummary.Count > 0) ? string.Join(", ", castSummary) : "",
+                CastSummary = castSummary ?? new List<string>(),
                 UsedModFeatures = modFeatures ?? new List<string>(),
                 RecordedAtUtc = DateTime.UtcNow.ToString("o")
             });
@@ -613,7 +628,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 4. NATIVE 4-BUTONLU PENCERE KUYRUGU (SIFIR IMGUI / SIFIR EKSTRA DLL)
+    // 4. NATIVE 4-BUTONLU PENCERE KUYRUGU (EVREN KONUMU & EVREN TONU ICIN)
     // =========================================================================
     public class PendingPopup
     {
@@ -632,25 +647,14 @@ namespace UniverseArchitect
 
         public static void Enqueue(string header, string text, string[] buttons, Action<int> onSelected)
         {
-            _nextPopup = new PendingPopup
-            {
-                Header = header,
-                Text = text,
-                Buttons = buttons,
-                OnSelected = onSelected
-            };
+            _nextPopup = new PendingPopup { Header = header, Text = text, Buttons = buttons, OnSelected = onSelected };
             _delayTimer = 0.12f;
         }
 
         public static void Tick(float dt)
         {
             if (_nextPopup == null) return;
-
-            if (_delayTimer > 0f)
-            {
-                _delayTimer -= dt;
-                return;
-            }
+            if (_delayTimer > 0f) { _delayTimer -= dt; return; }
 
             try
             {
@@ -674,7 +678,7 @@ namespace UniverseArchitect
                     try { panel.Dismiss(n); } catch { }
                     try { cb?.Invoke(); } catch { }
                     try { p.OnSelected?.Invoke(selectedOption); }
-                    catch (Exception cbEx) { MelonLogger.Warning($"[Faz 3 Popup] Callback hatasi: {cbEx.Message}"); }
+                    catch (Exception cbEx) { MelonLogger.Warning($"[Popup] Callback hatasi: {cbEx.Message}"); }
                 };
 
                 var del = DelegateSupport.ConvertDelegate<NotificationButton.NotificationButtonDelegate>(onClickAction);
@@ -682,28 +686,821 @@ namespace UniverseArchitect
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning($"[Faz 3 Popup] Pencere gosterim hatasi: {ex.Message}");
+                MelonLogger.Warning($"[Popup] Pencere gosterim hatasi: {ex.Message}");
                 _nextPopup = null;
             }
         }
     }
 
     // =========================================================================
-    // 5. FAZ 2 & 3: EVREN KONUMU + TON + NATIVE 3x3 KARAKTER ATOLYESI SIHIRBAZI
+    // 5. GERCEK UNITY UI (uGUI): SURUKLEMELI KAYDIRICI + KAYDIRILABILIR IZGARA + COKLU KADRO
+    // =========================================================================
+    public static class CharacterWorkshopUGUI
+    {
+        public static bool IsOpen { get; private set; } = false;
+
+        // Renk paleti (Game Dev Tycoon mor / krem / sari)
+        private static readonly Color ColDim       = new Color(0f, 0f, 0f, 0.70f);
+        private static readonly Color ColPanel     = new Color(0.98f, 0.96f, 0.90f, 1f);
+        private static readonly Color ColHeader    = new Color(0.47f, 0.29f, 0.52f, 1f);
+        private static readonly Color ColCard      = new Color(0.92f, 0.89f, 0.80f, 1f);
+        private static readonly Color ColYellow    = new Color(0.96f, 0.80f, 0.22f, 1f);
+        private static readonly Color ColGreen     = new Color(0.30f, 0.68f, 0.36f, 1f);
+        private static readonly Color ColRed       = new Color(0.82f, 0.30f, 0.28f, 1f);
+        private static readonly Color ColDarkText  = new Color(0.16f, 0.13f, 0.18f, 1f);
+        private static readonly Color ColMutedText = new Color(0.38f, 0.34f, 0.36f, 1f);
+        private static readonly Color ColTrack     = new Color(0.76f, 0.72f, 0.65f, 1f);
+
+        private static Font _font;
+        private static Sprite _whiteSprite;
+
+        // Kalici Canvas & HUD Butonu
+        private static GameObject _canvasObj;
+        private static GameObject _hudBtnObj;
+        private static Text _hudBtnText;
+        private static GameObject _modalRoot;
+        private static Text _headerTitle;
+        private static Transform _contentRoot;
+
+        // Aktif calisma durumu
+        private static bool _isRosterOnlyMode = false;
+        private static IntPtr _targetGamePtr = IntPtr.Zero;
+        private static string _targetGameTitle = "";
+        private static List<ActiveCharacterDraft> _workingCast = new List<ActiveCharacterDraft>();
+
+        // Yeni karakter formu
+        private static string _draftName = "Afor";
+        private static CharacterRole _draftRole = CharacterRole.Protagonist;
+        private static int _draftArchetypeIdx = 0;
+        private static int _sliderStage = 0; // 0: Durus, 1: Psikoloji, 2: Sosyallik
+        private static float[] _draftSliders = new float[] { 0.6f, 0.6f, 0.4f, 0.6f, 0.6f, 0.4f, 0.6f, 0.4f, 0.6f };
+        private static CharacterRole _returningRole = CharacterRole.Protagonist;
+        private static int _namePoolIdx = 0;
+        private static bool _updatingSliders = false;
+
+        // Canli kaydirici referanslari
+        private static Slider[] _activeSliders = new Slider[3];
+        private static Text[] _activeSliderPctTexts = new Text[3];
+        private static Text _activeBudgetText;
+        private static InputField _activeNameInput;
+
+        public static void EnsureHUD()
+        {
+            if (UniverseArchitectMod.ActiveCompany == null) return;
+
+            if (_canvasObj != null)
+            {
+                UpdateHudLabel();
+                return;
+            }
+
+            try
+            {
+                InitAssets();
+
+                _canvasObj = new GameObject("NJG_UniverseArchitect_Canvas");
+                UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
+
+                var canvas = _canvasObj.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 999;
+
+                var scaler = _canvasObj.AddComponent<CanvasScaler>();
+                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1280f, 720f);
+                scaler.matchWidthOrHeight = 0.5f;
+
+                _canvasObj.AddComponent<GraphicRaycaster>();
+
+                // Sag ust "Karakterler" HUD butonu (para/hayran cubugunun hemen alti)
+                var hudBtn = CreateButton(_canvasObj.transform, "Karakterler (0)", ColYellow, ColDarkText, 18, () =>
+                {
+                    if (!IsOpen) OpenRosterOnly();
+                });
+                _hudBtnObj = hudBtn.gameObject;
+                _hudBtnText = hudBtn.GetComponentInChildren<Text>();
+                var hudRt = hudBtn.GetComponent<RectTransform>();
+                hudRt.anchorMin = new Vector2(1f, 1f);
+                hudRt.anchorMax = new Vector2(1f, 1f);
+                hudRt.pivot = new Vector2(1f, 1f);
+                hudRt.anchoredPosition = new Vector2(-16f, -128f);
+                hudRt.sizeDelta = new Vector2(210f, 44f);
+
+                // Modal cerceve
+                _modalRoot = CreatePanel(_canvasObj.transform, ColDim);
+                StretchFull(_modalRoot.GetComponent<RectTransform>());
+
+                var box = CreatePanel(_modalRoot.transform, ColPanel);
+                var boxRt = box.GetComponent<RectTransform>();
+                boxRt.anchorMin = new Vector2(0.5f, 0.5f);
+                boxRt.anchorMax = new Vector2(0.5f, 0.5f);
+                boxRt.pivot = new Vector2(0.5f, 0.5f);
+                boxRt.sizeDelta = new Vector2(1120f, 650f);
+
+                var header = CreatePanel(box.transform, ColHeader);
+                var hRt = header.GetComponent<RectTransform>();
+                hRt.anchorMin = new Vector2(0f, 1f);
+                hRt.anchorMax = new Vector2(1f, 1f);
+                hRt.pivot = new Vector2(0.5f, 1f);
+                hRt.sizeDelta = new Vector2(0f, 56f);
+
+                _headerTitle = CreateText(header.transform, "Karakter Atölyesi", 24, Color.white, TextAnchor.MiddleLeft, true);
+                var htRt = _headerTitle.GetComponent<RectTransform>();
+                StretchFull(htRt);
+                htRt.offsetMin = new Vector2(22f, 0f);
+                htRt.offsetMax = new Vector2(-22f, 0f);
+
+                var body = new GameObject("ContentRoot");
+                body.transform.SetParent(box.transform, false);
+                var bodyRt = body.AddComponent<RectTransform>();
+                bodyRt.anchorMin = Vector2.zero;
+                bodyRt.anchorMax = Vector2.one;
+                bodyRt.offsetMin = new Vector2(18f, 16f);
+                bodyRt.offsetMax = new Vector2(-18f, -66f);
+                _contentRoot = body.transform;
+
+                _modalRoot.SetActive(false);
+                UpdateHudLabel();
+                MelonLogger.Msg("[Faz 3.1] Gercek uGUI Karakter Atolyesi & HUD kuruldu!");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[Faz 3.1] uGUI kurulum hatasi: {ex}");
+            }
+        }
+
+        private static void UpdateHudLabel()
+        {
+            if (_hudBtnText != null)
+                _hudBtnText.text = $"Karakterler ({UniverseSaveManager.Current.Characters.Count})";
+            if (_hudBtnObj != null)
+                _hudBtnObj.SetActive(!IsOpen);
+        }
+
+        public static void OpenCastManager(IntPtr gamePtr, string gameTitle)
+        {
+            EnsureHUD();
+            if (_modalRoot == null) return;
+
+            _isRosterOnlyMode = false;
+            _targetGamePtr = gamePtr;
+            _targetGameTitle = string.IsNullOrEmpty(gameTitle) ? "Yeni Oyun" : gameTitle;
+            _workingCast = new List<ActiveCharacterDraft>();
+
+            IsOpen = true;
+            _modalRoot.SetActive(true);
+            UpdateHudLabel();
+            Time.timeScale = 0f;
+
+            ShowCastOverview();
+        }
+
+        public static void OpenRosterOnly()
+        {
+            EnsureHUD();
+            if (_modalRoot == null) return;
+
+            _isRosterOnlyMode = true;
+            IsOpen = true;
+            _modalRoot.SetActive(true);
+            UpdateHudLabel();
+            Time.timeScale = 0f;
+
+            ShowFullRosterView();
+        }
+
+        public static void CloseModal()
+        {
+            IsOpen = false;
+            if (_modalRoot != null) _modalRoot.SetActive(false);
+            Time.timeScale = 1f;
+            UpdateHudLabel();
+        }
+
+        private static void ClearContent()
+        {
+            if (_contentRoot == null) return;
+            for (int i = _contentRoot.childCount - 1; i >= 0; i--)
+                UnityEngine.Object.Destroy(_contentRoot.GetChild(i).gameObject);
+        }
+
+        // ---------------------------------------------------------------------
+        // GORUNUM 1: OYUNUN KARAKTER KADROSU (COKLU KARAKTER EKLEME MERKEZI)
+        // ---------------------------------------------------------------------
+        private static void ShowCastOverview()
+        {
+            ClearContent();
+            _headerTitle.text = $"Oyun Kadrosu — {_targetGameTitle} ({_workingCast.Count} Karakter)";
+
+            var u = UniverseSaveManager.Current;
+            var infoCard = CreatePanel(_contentRoot, ColCard);
+            PlaceRect(infoCard.GetComponent<RectTransform>(), 0f, 0f, 1084f, 52f);
+            var infoTxt = CreateText(infoCard.transform,
+                $"Ton: {CategoryLabels.ToneToTurkish(UniverseSaveManager.GetTone())}  |  Tutarlılık: {u.CanonIntegrity}/100  |  Lore Bariyeri: {u.LoreBarrier}/100  |  Ara Evren Serisi: {u.ConsecutiveSideProjects}",
+                18, ColDarkText, TextAnchor.MiddleLeft, true);
+            StretchWithPad(infoTxt.GetComponent<RectTransform>(), 16f, 0f);
+
+            // Ust aksiyon butonlari
+            var btnNew = CreateButton(_contentRoot, "+ Yeni Karakter Yaz", ColGreen, Color.white, 19, () =>
+            {
+                _draftName = Phase1Database.CharacterNamePool[_namePoolIdx % Phase1Database.CharacterNamePool.Length];
+                _namePoolIdx++;
+                _draftRole = _workingCast.Count == 0 ? CharacterRole.Protagonist : CharacterRole.Villain;
+                _draftArchetypeIdx = 0;
+                _sliderStage = 0;
+                _draftSliders = new float[] { 0.6f, 0.6f, 0.4f, 0.6f, 0.6f, 0.4f, 0.6f, 0.4f, 0.6f };
+                ShowCreateCharacterView();
+            });
+            PlaceRect(btnNew.GetComponent<RectTransform>(), 0f, 64f, 340f, 50f);
+
+            int savedCount = u.Characters.Count;
+            var btnReturn = CreateButton(_contentRoot, $"+ Eski Yıldız Çağır ({savedCount})", savedCount > 0 ? ColYellow : ColTrack, ColDarkText, 19, () =>
+            {
+                if (savedCount > 0) ShowReturningPickerView();
+            });
+            PlaceRect(btnReturn.GetComponent<RectTransform>(), 356f, 64f, 356f, 50f);
+
+            var btnRoster = CreateButton(_contentRoot, $"Tüm Karakterler ({savedCount})", ColYellow, ColDarkText, 19, () => ShowFullRosterView());
+            PlaceRect(btnRoster.GetComponent<RectTransform>(), 728f, 64f, 356f, 50f);
+
+            // Bu oyuna eklenen karakterlerin kaydirilabilir listesi
+            var scroll = CreateScrollView(_contentRoot, 0f, 126f, 1084f, 368f);
+            var listContent = scroll.content;
+            var vlg = listContent.gameObject.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 10f;
+            vlg.padding = new RectOffset(8, 8, 8, 8);
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = false;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+
+            if (_workingCast.Count == 0)
+            {
+                var emptyCard = CreatePanel(listContent, ColCard);
+                var le = emptyCard.AddComponent<LayoutElement>();
+                le.preferredHeight = 110f;
+                var txt = CreateText(emptyCard.transform,
+                    "Bu oyun için henüz karakter eklemedin.\n\nYukarıdan Başrol, Kötü Adam, Yardımcı veya Herhangi Bir Adam ekleyebilir ya da doğrudan 'Oyuna Başla' diyebilirsin.",
+                    19, ColMutedText, TextAnchor.MiddleCenter, false);
+                StretchWithPad(txt.GetComponent<RectTransform>(), 20f, 10f);
+            }
+            else
+            {
+                for (int i = 0; i < _workingCast.Count; i++)
+                {
+                    int capturedIdx = i;
+                    var d = _workingCast[i];
+                    var arch = Phase1Database.FindArchetype(d.ArchetypeId);
+
+                    var card = CreatePanel(listContent, ColCard);
+                    var le = card.AddComponent<LayoutElement>();
+                    le.preferredHeight = 76f;
+
+                    string tag = d.IsReturning ? "Eski Yıldız" : "Yeni";
+                    var lbl = CreateText(card.transform,
+                        $"[{CategoryLabels.RoleToTurkish(d.Role)}]  {d.Name}  —  {arch.Name} ({tag})\n" +
+                        $"Duruş: Kavg %{d.Sliders[0]*100:F0} / San.Diy %{d.Sliders[1]*100:F0} / Zek %{d.Sliders[2]*100:F0}  |  Sosyallik: Çev %{d.Sliders[6]*100:F0} / Ego %{d.Sliders[7]*100:F0} / Kap %{d.Sliders[8]*100:F0}",
+                        16, ColDarkText, TextAnchor.MiddleLeft, false);
+                    var lrt = lbl.GetComponent<RectTransform>();
+                    lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
+                    lrt.offsetMin = new Vector2(16f, 4f); lrt.offsetMax = new Vector2(-140f, -4f);
+
+                    var delBtn = CreateButton(card.transform, "Çıkar", ColRed, Color.white, 17, () =>
+                    {
+                        _workingCast.RemoveAt(capturedIdx);
+                        ShowCastOverview();
+                    });
+                    var drt = delBtn.GetComponent<RectTransform>();
+                    drt.anchorMin = new Vector2(1f, 0.5f); drt.anchorMax = new Vector2(1f, 0.5f);
+                    drt.pivot = new Vector2(1f, 0.5f);
+                    drt.anchoredPosition = new Vector2(-14f, 0f);
+                    drt.sizeDelta = new Vector2(110f, 46f);
+                }
+            }
+
+            // Alt onay butonu
+            string confirmLabel = _workingCast.Count > 0
+                ? $"Kadroyu Onayla ({_workingCast.Count} Karakter) ve Oyuna Başla"
+                : "Karaktersiz Devam Et";
+            var btnConfirm = CreateButton(_contentRoot, confirmLabel, ColGreen, Color.white, 21, () =>
+            {
+                UniverseChoicePopupSystem.SetCastForGame(_targetGamePtr, new List<ActiveCharacterDraft>(_workingCast));
+                MelonLogger.Msg($"[Faz 3.1] '{_targetGameTitle}' kadrosu onaylandi ({_workingCast.Count} karakter).");
+                CloseModal();
+            });
+            PlaceRect(btnConfirm.GetComponent<RectTransform>(), 0f, 506f, 1084f, 56f);
+        }
+
+        // ---------------------------------------------------------------------
+        // GORUNUM 2: YENI KARAKTER YAZ (KAYDIRILABILIR ARKETIP + SURUKLEMELI 3x3 SLIDER)
+        // ---------------------------------------------------------------------
+        private static void ShowCreateCharacterView()
+        {
+            ClearContent();
+            _headerTitle.text = $"Yeni Karakter Yaz — {_targetGameTitle}";
+
+            // SOL SUTUN (0..520): Isim, 4 Rol, Kaydirilabilir Arketip Izgarasi (Tema secimi gibi!)
+            var lblName = CreateText(_contentRoot, "İsim:", 18, ColDarkText, TextAnchor.MiddleLeft, true);
+            PlaceRect(lblName.GetComponent<RectTransform>(), 0f, 4f, 65f, 42f);
+
+            _activeNameInput = CreateInputField(_contentRoot, _draftName, "Karakter adı yaz...", val => _draftName = val);
+            PlaceRect(_activeNameInput.GetComponent<RectTransform>(), 70f, 4f, 305f, 42f);
+
+            var btnRand = CreateButton(_contentRoot, "Rastgele", ColYellow, ColDarkText, 16, () =>
+            {
+                _draftName = Phase1Database.CharacterNamePool[_namePoolIdx % Phase1Database.CharacterNamePool.Length];
+                _namePoolIdx++;
+                if (_activeNameInput != null) _activeNameInput.text = _draftName;
+            });
+            PlaceRect(btnRand.GetComponent<RectTransform>(), 385f, 4f, 130f, 42f);
+
+            // 4 Rol secimi
+            var lblRole = CreateText(_contentRoot, "Rol Seç:", 17, ColDarkText, TextAnchor.MiddleLeft, true);
+            PlaceRect(lblRole.GetComponent<RectTransform>(), 0f, 54f, 515f, 26f);
+
+            CharacterRole[] roles = { CharacterRole.Protagonist, CharacterRole.Villain, CharacterRole.Sidekick, CharacterRole.Minor };
+            string[] roleShort = { "Başrol", "Kötü Adam", "Yardımcı", "Herhangi Biri" };
+            for (int r = 0; r < 4; r++)
+            {
+                CharacterRole capRole = roles[r];
+                bool isSel = (_draftRole == capRole);
+                var rb = CreateButton(_contentRoot, roleShort[r], isSel ? ColGreen : ColYellow, isSel ? Color.white : ColDarkText, 15, () =>
+                {
+                    _draftRole = capRole;
+                    ShowCreateCharacterView();
+                });
+                PlaceRect(rb.GetComponent<RectTransform>(), r * 130f, 82f, 124f, 40f);
+            }
+
+            // Kaydirilabilir Arketip Izgarasi (Oyun temasi secim ekrani gibi!)
+            var lblArch = CreateText(_contentRoot, $"Arketip Seç (Kaydırılabilir — {Phase1Database.Archetypes.Count} Arketip):", 17, ColDarkText, TextAnchor.MiddleLeft, true);
+            PlaceRect(lblArch.GetComponent<RectTransform>(), 0f, 130f, 515f, 28f);
+
+            var archScroll = CreateScrollView(_contentRoot, 0f, 160f, 515f, 336f);
+            var grid = archScroll.content.gameObject.AddComponent<GridLayoutGroup>();
+            grid.cellSize = new Vector2(240f, 76f);
+            grid.spacing = new Vector2(10f, 10f);
+            grid.padding = new RectOffset(8, 8, 8, 8);
+            grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            grid.constraintCount = 2;
+
+            for (int i = 0; i < Phase1Database.Archetypes.Count; i++)
+            {
+                int capIdx = i;
+                var a = Phase1Database.Archetypes[i];
+                bool sel = (_draftArchetypeIdx == i);
+                var ab = CreateButton(archScroll.content, $"{a.Name}\n{a.ShortDesc}", sel ? ColGreen : ColYellow, sel ? Color.white : ColDarkText, 14, () =>
+                {
+                    _draftArchetypeIdx = capIdx;
+                    ShowCreateCharacterView();
+                });
+                var txt = ab.GetComponentInChildren<Text>();
+                if (txt != null) txt.lineSpacing = 1.05f;
+            }
+
+            // SAG SUTUN (538..1084): 3 Asamali Suruklemeli Kaydiricilar (Durus / Psikoloji / Sosyallik)
+            float rx = 538f;
+            float rw = 546f;
+
+            string[] stageTitles = { "1. Duruş", "2. Psikoloji", "3. Sosyallik" };
+            for (int s = 0; s < 3; s++)
+            {
+                int capS = s;
+                bool sel = (_sliderStage == s);
+                var sb = CreateButton(_contentRoot, stageTitles[s], sel ? ColGreen : ColYellow, sel ? Color.white : ColDarkText, 18, () =>
+                {
+                    _sliderStage = capS;
+                    ShowCreateCharacterView();
+                });
+                PlaceRect(sb.GetComponent<RectTransform>(), rx + s * 184f, 4f, 178f, 44f);
+            }
+
+            var selArch = Phase1Database.Archetypes[_draftArchetypeIdx];
+            var archInfo = CreatePanel(_contentRoot, ColCard);
+            PlaceRect(archInfo.GetComponent<RectTransform>(), rx, 56f, rw, 54f);
+            var archInfoTxt = CreateText(archInfo.transform,
+                $"Seçili: {selArch.Name} — Uyumlu Ton: {CategoryLabels.ToneToTurkish(selArch.PreferredTone)}",
+                16, ColDarkText, TextAnchor.MiddleLeft, true);
+            StretchWithPad(archInfoTxt.GetComponent<RectTransform>(), 12f, 4f);
+
+            int baseIdx = _sliderStage * 3;
+            float curSum = _draftSliders[baseIdx] + _draftSliders[baseIdx + 1] + _draftSliders[baseIdx + 2];
+            _activeBudgetText = CreateText(_contentRoot,
+                $"Odak Bütçesi (Sürükleyerek Ayarla): {Mathf.RoundToInt(curSum * 100f)} / 180",
+                17, ColHeader, TextAnchor.MiddleLeft, true);
+            PlaceRect(_activeBudgetText.GetComponent<RectTransform>(), rx, 118f, rw, 30f);
+
+            for (int i = 0; i < 3; i++)
+            {
+                int localI = i;
+                int sIdx = baseIdx + i;
+                float cy = 156f + i * 112f;
+
+                var card = CreatePanel(_contentRoot, ColCard);
+                PlaceRect(card.GetComponent<RectTransform>(), rx, cy, rw, 102f);
+
+                var pctTxt = CreateText(card.transform, $"{Phase1Database.SliderNames[sIdx]}: %{Mathf.RoundToInt(_draftSliders[sIdx] * 100f)}",
+                    19, ColDarkText, TextAnchor.MiddleLeft, true);
+                PlaceRect(pctTxt.GetComponent<RectTransform>(), 14f, 6f, rw - 28f, 28f);
+                _activeSliderPctTexts[localI] = pctTxt;
+
+                var hintTxt = CreateText(card.transform, Phase1Database.SliderHints[sIdx],
+                    14, ColMutedText, TextAnchor.MiddleLeft, false);
+                PlaceRect(hintTxt.GetComponent<RectTransform>(), 14f, 34f, rw - 28f, 22f);
+
+                var slider = CreateSlider(card.transform, _draftSliders[sIdx], val =>
+                {
+                    if (_updatingSliders) return;
+                    _updatingSliders = true;
+                    try
+                    {
+                        float others = 0f;
+                        for (int k = 0; k < 3; k++)
+                            if (baseIdx + k != sIdx) others += _draftSliders[baseIdx + k];
+
+                        float maxAllowed = Mathf.Clamp01(BalanceCaps.StageSliderBudget - others);
+                        float clamped = Mathf.Min(Mathf.Clamp01(val), maxAllowed);
+                        _draftSliders[sIdx] = clamped;
+                        if (_activeSliders[localI] != null && Math.Abs(_activeSliders[localI].value - clamped) > 0.001f)
+                            _activeSliders[localI].value = clamped;
+
+                        if (_activeSliderPctTexts[localI] != null)
+                            _activeSliderPctTexts[localI].text = $"{Phase1Database.SliderNames[sIdx]}: %{Mathf.RoundToInt(clamped * 100f)}";
+
+                        float newSum = _draftSliders[baseIdx] + _draftSliders[baseIdx + 1] + _draftSliders[baseIdx + 2];
+                        if (_activeBudgetText != null)
+                            _activeBudgetText.text = $"Odak Bütçesi (Sürükleyerek Ayarla): {Mathf.RoundToInt(newSum * 100f)} / 180";
+                    }
+                    finally { _updatingSliders = false; }
+                });
+                PlaceRect(slider.GetComponent<RectTransform>(), 18f, 64f, rw - 36f, 28f);
+                _activeSliders[localI] = slider;
+            }
+
+            // ALT BUTONLAR
+            var btnBack = CreateButton(_contentRoot, "< Kadroya Dön", ColYellow, ColDarkText, 19, () => ShowCastOverview());
+            PlaceRect(btnBack.GetComponent<RectTransform>(), 0f, 508f, 260f, 52f);
+
+            var btnAdd = CreateButton(_contentRoot, "Karakteri Kadroya Ekle", ColGreen, Color.white, 20, () =>
+            {
+                var arch = Phase1Database.Archetypes[_draftArchetypeIdx];
+                string finalName = (_activeNameInput != null && !string.IsNullOrWhiteSpace(_activeNameInput.text))
+                    ? _activeNameInput.text.Trim()
+                    : (string.IsNullOrWhiteSpace(_draftName) ? "Adsız Karakter" : _draftName.Trim());
+
+                _workingCast.Add(new ActiveCharacterDraft
+                {
+                    IsReturning = false,
+                    Name = finalName,
+                    ArchetypeId = arch.Id,
+                    Role = _draftRole,
+                    Sliders = (float[])_draftSliders.Clone()
+                });
+                ShowCastOverview();
+            });
+            PlaceRect(btnAdd.GetComponent<RectTransform>(), 538f, 508f, 546f, 52f);
+        }
+
+        // ---------------------------------------------------------------------
+        // GORUNUM 3: ESKI YILDIZ CAGIR (ROL SEC + KAYDIRILABILIR LISTE)
+        // ---------------------------------------------------------------------
+        private static void ShowReturningPickerView()
+        {
+            ClearContent();
+            _headerTitle.text = $"Eski Yıldız Çağır — {_targetGameTitle}";
+
+            var lbl = CreateText(_contentRoot, "Çağrılacak Karakterin Bu Oyundaki Rolü:", 18, ColDarkText, TextAnchor.MiddleLeft, true);
+            PlaceRect(lbl.GetComponent<RectTransform>(), 0f, 4f, 420f, 40f);
+
+            CharacterRole[] roles = { CharacterRole.Protagonist, CharacterRole.Villain, CharacterRole.Sidekick, CharacterRole.Minor };
+            string[] roleShort = { "Başrol", "Kötü Adam", "Yardımcı", "Herhangi Biri" };
+            for (int r = 0; r < 4; r++)
+            {
+                CharacterRole capR = roles[r];
+                bool sel = (_returningRole == capR);
+                var rb = CreateButton(_contentRoot, roleShort[r], sel ? ColGreen : ColYellow, sel ? Color.white : ColDarkText, 16, () =>
+                {
+                    _returningRole = capR;
+                    ShowReturningPickerView();
+                });
+                PlaceRect(rb.GetComponent<RectTransform>(), 430f + r * 165f, 4f, 158f, 42f);
+            }
+
+            var scroll = CreateScrollView(_contentRoot, 0f, 58f, 1084f, 438f);
+            var vlg = scroll.content.gameObject.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 10f;
+            vlg.padding = new RectOffset(8, 8, 8, 8);
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = false;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+
+            var chars = UniverseSaveManager.Current.Characters;
+            for (int i = 0; i < chars.Count; i++)
+            {
+                var c = chars[i];
+                var card = CreatePanel(scroll.content, ColCard);
+                var le = card.AddComponent<LayoutElement>();
+                le.preferredHeight = 78f;
+
+                string fatigue = c.ConsecutiveUses >= 3 ? "YORGUN! (-Skor)" : $"Dinç (Seri: {c.ConsecutiveUses})";
+                var txt = CreateText(card.transform,
+                    $"{c.Name}  [{c.Status}]  —  {c.ArchetypeName}\nPopülerlik: {c.Popularity}/100  |  Oyun: {c.GamesAppeared}  |  {fatigue}  |  Çıkış: {c.DebutGame}",
+                    17, ColDarkText, TextAnchor.MiddleLeft, false);
+                var trt = txt.GetComponent<RectTransform>();
+                trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+                trt.offsetMin = new Vector2(16f, 4f); trt.offsetMax = new Vector2(-180f, -4f);
+
+                var pickBtn = CreateButton(card.transform, "Kadroya Ekle", ColGreen, Color.white, 17, () =>
+                {
+                    _workingCast.Add(new ActiveCharacterDraft
+                    {
+                        IsReturning = true,
+                        ExistingCharacterId = c.Id,
+                        Name = c.Name,
+                        ArchetypeId = c.ArchetypeId,
+                        Role = _returningRole,
+                        Sliders = (c.Sliders != null && c.Sliders.Length == 9) ? (float[])c.Sliders.Clone() : new float[9]
+                    });
+                    ShowCastOverview();
+                });
+                var prt = pickBtn.GetComponent<RectTransform>();
+                prt.anchorMin = new Vector2(1f, 0.5f); prt.anchorMax = new Vector2(1f, 0.5f);
+                prt.pivot = new Vector2(1f, 0.5f);
+                prt.anchoredPosition = new Vector2(-14f, 0f);
+                prt.sizeDelta = new Vector2(154f, 48f);
+            }
+
+            var btnBack = CreateButton(_contentRoot, "< Kadroya Dön", ColYellow, ColDarkText, 19, () => ShowCastOverview());
+            PlaceRect(btnBack.GetComponent<RectTransform>(), 0f, 508f, 260f, 52f);
+        }
+
+        // ---------------------------------------------------------------------
+        // GORUNUM 4: TUM KARAKTERLER & EVREN DURUMU (HUD BUTONUNDAN DA ACILIR)
+        // ---------------------------------------------------------------------
+        private static void ShowFullRosterView()
+        {
+            ClearContent();
+            var u = UniverseSaveManager.Current;
+            _headerTitle.text = $"Karakterler & Evren Durumu ({u.Characters.Count} Karakter)";
+
+            var summary = CreatePanel(_contentRoot, ColCard);
+            PlaceRect(summary.GetComponent<RectTransform>(), 0f, 0f, 1084f, 52f);
+            var sumTxt = CreateText(summary.transform,
+                $"Ton: {CategoryLabels.ToneToTurkish(UniverseSaveManager.GetTone())}  |  Tutarlılık: {u.CanonIntegrity}/100  |  Lore Bariyeri: {u.LoreBarrier}/100  |  Ara Evren Serisi: {u.ConsecutiveSideProjects}",
+                18, ColDarkText, TextAnchor.MiddleLeft, true);
+            StretchWithPad(sumTxt.GetComponent<RectTransform>(), 16f, 0f);
+
+            var scroll = CreateScrollView(_contentRoot, 0f, 64f, 1084f, 432f);
+            var vlg = scroll.content.gameObject.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 10f;
+            vlg.padding = new RectOffset(8, 8, 8, 8);
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = false;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+
+            if (u.Characters.Count == 0)
+            {
+                var empty = CreatePanel(scroll.content, ColCard);
+                empty.AddComponent<LayoutElement>().preferredHeight = 110f;
+                var t = CreateText(empty.transform,
+                    "Henüz evrenine kayıtlı karakter yok. Yeni bir Ana/Yan Evren veya Alternatif Zaman oyunu başlattığında Karakter Atölyesi otomatik açılacak.",
+                    19, ColMutedText, TextAnchor.MiddleCenter, false);
+                StretchWithPad(t.GetComponent<RectTransform>(), 20f, 10f);
+            }
+            else
+            {
+                for (int i = 0; i < u.Characters.Count; i++)
+                {
+                    var c = u.Characters[i];
+                    var card = CreatePanel(scroll.content, ColCard);
+                    card.AddComponent<LayoutElement>().preferredHeight = 90f;
+
+                    string fatigue = c.ConsecutiveUses >= 3 ? "YORGUN (Dinlendir!)" : (c.ConsecutiveUses == 0 ? "Dinç" : $"Aktif (Seri {c.ConsecutiveUses})");
+                    string sLine = (c.Sliders != null && c.Sliders.Length == 9)
+                        ? $"Duruş: Kavg {c.Sliders[0]*100:F0} / San.Diy {c.Sliders[1]*100:F0} / Zek {c.Sliders[2]*100:F0}  |  Psik: Trv {c.Sliders[3]*100:F0} / İçAç {c.Sliders[4]*100:F0} / Mzh {c.Sliders[5]*100:F0}  |  Sosy: Çev {c.Sliders[6]*100:F0} / Ego {c.Sliders[7]*100:F0} / Kap {c.Sliders[8]*100:F0}"
+                        : "";
+
+                    var txt = CreateText(card.transform,
+                        $"{c.Name}  [{c.Status}]  —  {c.ArchetypeName} (Son Rol: {c.LastRole})  |  Pop: {c.Popularity}/100  |  Oyun: {c.GamesAppeared}  |  {fatigue}\n" +
+                        $"Çıkış Oyunu: {c.DebutGame}\n{sLine}",
+                        15, ColDarkText, TextAnchor.MiddleLeft, false);
+                    StretchWithPad(txt.GetComponent<RectTransform>(), 14f, 6f);
+                }
+            }
+
+            string closeLabel = _isRosterOnlyMode ? "Kapat" : "< Oyun Kadrosuna Dön";
+            var btnClose = CreateButton(_contentRoot, closeLabel, ColYellow, ColDarkText, 19, () =>
+            {
+                if (_isRosterOnlyMode) CloseModal();
+                else ShowCastOverview();
+            });
+            PlaceRect(btnClose.GetComponent<RectTransform>(), 0f, 508f, 300f, 52f);
+        }
+
+        // ---------------------------------------------------------------------
+        // uGUI FABRIKA METOTLARI (4 KATMANLI FONT YEDEGI + DOKUNMATIK UYUMLU)
+        // ---------------------------------------------------------------------
+        private static void InitAssets()
+        {
+            if (_whiteSprite == null)
+            {
+                var tex = new Texture2D(4, 4);
+                var cols = new Color[16];
+                for (int i = 0; i < 16; i++) cols[i] = Color.white;
+                tex.SetPixels(cols);
+                tex.Apply();
+                _whiteSprite = Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f));
+            }
+
+            if (_font == null)
+            {
+                try { _font = Font.CreateDynamicFontFromOSFont("Roboto", 20); } catch { }
+                if (_font == null) try { _font = Font.CreateDynamicFontFromOSFont("sans-serif", 20); } catch { }
+                if (_font == null) try { _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"); } catch { }
+                if (_font == null) try { _font = Resources.GetBuiltinResource<Font>("Arial.ttf"); } catch { }
+                if (_font == null)
+                {
+                    var allFonts = Resources.FindObjectsOfTypeAll<Font>();
+                    if (allFonts != null && allFonts.Length > 0) _font = allFonts[0];
+                }
+            }
+        }
+
+        private static void StretchFull(RectTransform rt)
+        {
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+        }
+
+        private static void StretchWithPad(RectTransform rt, float px, float py)
+        {
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = new Vector2(px, py); rt.offsetMax = new Vector2(-px, -py);
+        }
+
+        private static void PlaceRect(RectTransform rt, float x, float yTop, float w, float h)
+        {
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(0f, 1f);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.anchoredPosition = new Vector2(x, -yTop);
+            rt.sizeDelta = new Vector2(w, h);
+        }
+
+        private static GameObject CreatePanel(Transform parent, Color color)
+        {
+            var go = new GameObject("Panel");
+            go.transform.SetParent(parent, false);
+            go.AddComponent<RectTransform>();
+            var img = go.AddComponent<Image>();
+            img.sprite = _whiteSprite;
+            img.color = color;
+            return go;
+        }
+
+        private static Text CreateText(Transform parent, string content, int size, Color color, TextAnchor align, bool bold)
+        {
+            var go = new GameObject("Text");
+            go.transform.SetParent(parent, false);
+            go.AddComponent<RectTransform>();
+            var txt = go.AddComponent<Text>();
+            txt.font = _font;
+            txt.text = content;
+            txt.fontSize = size;
+            txt.color = color;
+            txt.alignment = align;
+            txt.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
+            txt.horizontalOverflow = HorizontalWrapMode.Wrap;
+            txt.verticalOverflow = VerticalWrapMode.Overflow;
+            return txt;
+        }
+
+        private static Button CreateButton(Transform parent, string label, Color bg, Color textCol, int fontSize, Action onClick)
+        {
+            var go = CreatePanel(parent, bg);
+            var btn = go.AddComponent<Button>();
+            btn.targetGraphic = go.GetComponent<Image>();
+
+            var txt = CreateText(go.transform, label, fontSize, textCol, TextAnchor.MiddleCenter, true);
+            StretchWithPad(txt.GetComponent<RectTransform>(), 8f, 4f);
+
+            if (onClick != null)
+                btn.onClick.AddListener(DelegateSupport.ConvertDelegate<UnityAction>(onClick));
+            return btn;
+        }
+
+        private static InputField CreateInputField(Transform parent, string initial, string placeholderText, Action<string> onChanged)
+        {
+            var go = CreatePanel(parent, Color.white);
+            var input = go.AddComponent<InputField>();
+            input.targetGraphic = go.GetComponent<Image>();
+
+            var ph = CreateText(go.transform, placeholderText, 18, ColMutedText, TextAnchor.MiddleLeft, false);
+            StretchWithPad(ph.GetComponent<RectTransform>(), 10f, 2f);
+
+            var tx = CreateText(go.transform, initial ?? "", 19, ColDarkText, TextAnchor.MiddleLeft, true);
+            tx.supportRichText = false;
+            StretchWithPad(tx.GetComponent<RectTransform>(), 10f, 2f);
+
+            input.textComponent = tx;
+            input.placeholder = ph;
+            input.characterLimit = 24;
+            input.text = initial ?? "";
+
+            if (onChanged != null)
+                input.onValueChanged.AddListener(DelegateSupport.ConvertDelegate<UnityAction<string>>(onChanged));
+            return input;
+        }
+
+        private static Slider CreateSlider(Transform parent, float initialVal, Action<float> onChanged)
+        {
+            var go = new GameObject("Slider");
+            go.transform.SetParent(parent, false);
+            go.AddComponent<RectTransform>();
+
+            var bg = CreatePanel(go.transform, ColTrack);
+            var bgRt = bg.GetComponent<RectTransform>();
+            bgRt.anchorMin = new Vector2(0f, 0.30f); bgRt.anchorMax = new Vector2(1f, 0.70f);
+            bgRt.offsetMin = Vector2.zero; bgRt.offsetMax = Vector2.zero;
+
+            var fillArea = new GameObject("FillArea");
+            fillArea.transform.SetParent(go.transform, false);
+            var faRt = fillArea.AddComponent<RectTransform>();
+            faRt.anchorMin = new Vector2(0f, 0.30f); faRt.anchorMax = new Vector2(1f, 0.70f);
+            faRt.offsetMin = new Vector2(6f, 0f); faRt.offsetMax = new Vector2(-6f, 0f);
+
+            var fill = CreatePanel(fillArea.transform, ColHeader);
+            var fillRt = fill.GetComponent<RectTransform>();
+            StretchFull(fillRt);
+
+            var handleArea = new GameObject("HandleArea");
+            handleArea.transform.SetParent(go.transform, false);
+            var haRt = handleArea.AddComponent<RectTransform>();
+            StretchFull(haRt);
+            haRt.offsetMin = new Vector2(14f, 0f); haRt.offsetMax = new Vector2(-14f, 0f);
+
+            var handle = CreatePanel(handleArea.transform, ColYellow);
+            var hRt = handle.GetComponent<RectTransform>();
+            hRt.sizeDelta = new Vector2(30f, 30f);
+
+            var slider = go.AddComponent<Slider>();
+            slider.fillRect = fillRt;
+            slider.handleRect = hRt;
+            slider.targetGraphic = handle.GetComponent<Image>();
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.minValue = 0f;
+            slider.maxValue = 1f;
+            slider.value = Mathf.Clamp01(initialVal);
+
+            if (onChanged != null)
+                slider.onValueChanged.AddListener(DelegateSupport.ConvertDelegate<UnityAction<float>>(onChanged));
+            return slider;
+        }
+
+        private static ScrollRect CreateScrollView(Transform parent, float x, float yTop, float w, float h)
+        {
+            var go = CreatePanel(parent, new Color(0.95f, 0.92f, 0.85f, 1f));
+            PlaceRect(go.GetComponent<RectTransform>(), x, yTop, w, h);
+
+            var sr = go.AddComponent<ScrollRect>();
+            sr.horizontal = false;
+            sr.vertical = true;
+            sr.movementType = ScrollRect.MovementType.Elastic;
+            sr.scrollSensitivity = 25f;
+
+            var vp = CreatePanel(go.transform, new Color(1f, 1f, 1f, 0.01f));
+            var vpRt = vp.GetComponent<RectTransform>();
+            StretchFull(vpRt);
+            vp.AddComponent<RectMask2D>();
+
+            var content = new GameObject("Content");
+            content.transform.SetParent(vp.transform, false);
+            var cRt = content.AddComponent<RectTransform>();
+            cRt.anchorMin = new Vector2(0f, 1f);
+            cRt.anchorMax = new Vector2(1f, 1f);
+            cRt.pivot = new Vector2(0.5f, 1f);
+            cRt.anchoredPosition = Vector2.zero;
+            cRt.sizeDelta = new Vector2(0f, 0f);
+
+            var csf = content.AddComponent<ContentSizeFitter>();
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            sr.viewport = vpRt;
+            sr.content = cRt;
+            return sr;
+        }
+    }
+
+    // =========================================================================
+    // 6. FAZ 2 & 3: EVREN KONUMU + TON + COKLU KARAKTER KADROSU TETIKLEYICI
     // =========================================================================
     public static class UniverseChoicePopupSystem
     {
         private static readonly HashSet<IntPtr> _promptedGames = new HashSet<IntPtr>();
         private static readonly Dictionary<IntPtr, ProjectCategory> _gameCategories = new Dictionary<IntPtr, ProjectCategory>();
-        private static readonly Dictionary<IntPtr, ActiveCharacterDraft> _gameCharacters = new Dictionary<IntPtr, ActiveCharacterDraft>();
-
-        // Aktif karakter olusturma taslagi (native 4 butonlu sihirbaz)
-        private static IntPtr _draftGamePtr = IntPtr.Zero;
-        private static string _draftGameTitle = "";
-        private static string _draftName = "Afor";
-        private static int _draftArchetypeIdx = 0;
-        private static int[] _draftSlidersPct = new int[] { 60, 60, 40, 60, 60, 40, 60, 40, 60 };
-        private static int _namePage = 0;
+        private static readonly Dictionary<IntPtr, List<ActiveCharacterDraft>> _gameCasts = new Dictionary<IntPtr, List<ActiveCharacterDraft>>();
 
         public static ProjectCategory GetCategoryForGame(Game game)
         {
@@ -712,10 +1509,15 @@ namespace UniverseArchitect
             return UniverseArchitectMod.ActiveProjectCategory;
         }
 
-        public static ActiveCharacterDraft GetCharacterForGame(Game game)
+        public static void SetCastForGame(IntPtr gamePtr, List<ActiveCharacterDraft> cast)
         {
-            if (game != null && game.Pointer != IntPtr.Zero && _gameCharacters.TryGetValue(game.Pointer, out var draft))
-                return draft;
+            if (gamePtr != IntPtr.Zero) _gameCasts[gamePtr] = cast ?? new List<ActiveCharacterDraft>();
+        }
+
+        public static List<ActiveCharacterDraft> GetCastForGame(Game game)
+        {
+            if (game != null && game.Pointer != IntPtr.Zero && _gameCasts.TryGetValue(game.Pointer, out var cast))
+                return cast;
             return null;
         }
 
@@ -723,7 +1525,7 @@ namespace UniverseArchitect
         {
             if (company == null || !company.isCurrentlyDevelopingGame() || company.currentGame == null)
                 return;
-            if (NativePopupQueue.HasPending)
+            if (NativePopupQueue.HasPending || CharacterWorkshopUGUI.IsOpen)
                 return;
 
             var game = company.currentGame;
@@ -769,7 +1571,7 @@ namespace UniverseArchitect
                     }
                     else if (chosen != ProjectCategory.NonUniverse)
                     {
-                        OpenCharacterHub(capturedGamePtr, title);
+                        CharacterWorkshopUGUI.OpenCastManager(capturedGamePtr, title);
                     }
                 }
             );
@@ -794,337 +1596,14 @@ namespace UniverseArchitect
 
                     UniverseSaveManager.SetTone(tone);
                     MelonLogger.Msg($"[Faz 3] Evren Tonu belirlendi: {CategoryLabels.ToneToTurkish(tone)}");
-                    OpenCharacterHub(gamePtr, title);
+                    CharacterWorkshopUGUI.OpenCastManager(gamePtr, title);
                 }
             );
-        }
-
-        private static void OpenCharacterHub(IntPtr gamePtr, string title)
-        {
-            _draftGamePtr = gamePtr;
-            _draftGameTitle = title;
-
-            var u = UniverseSaveManager.Current;
-            int charCount = u.Characters.Count;
-            string secondBtn = charCount > 0 ? $"Eski Yıldızı Çağır ({charCount})" : "Kadro Boş (Yeni Yaz)";
-
-            NativePopupQueue.Enqueue(
-                $"Karakter Atölyesi: {title}",
-                $"Ton: {CategoryLabels.ToneToTurkish(UniverseSaveManager.GetTone())} | Tutarlılık: {u.CanonIntegrity}/100 | Lore Bariyeri: {u.LoreBarrier}/100\n" +
-                $"Kayıtlı Karakter: {charCount} | Ara Evren Serisi: {u.ConsecutiveSideProjects}\n\n" +
-                "Bu oyun için 10 arketip ve 3×3 kişilik kaydırıcısıyla (Duruş, Psikoloji, Sosyallik) yeni başrol yazabilir veya sevilen bir yıldızı geri çağırabilirsin.",
-                new[] { "Yeni Karakter Yaz", secondBtn, $"Karakterler ({charCount})", "Karaktersiz Geç" },
-                opt =>
-                {
-                    if (opt == 0 || (opt == 1 && charCount == 0))
-                    {
-                        _draftSlidersPct = new int[] { 60, 60, 40, 60, 60, 40, 60, 40, 60 };
-                        OpenArchetypePage(0);
-                    }
-                    else if (opt == 1)
-                    {
-                        OpenReturningCharacterPage(0);
-                    }
-                    else if (opt == 2)
-                    {
-                        OpenRosterViewerPage(0);
-                    }
-                    else
-                    {
-                        _gameCharacters[gamePtr] = null;
-                        MelonLogger.Msg($"[Faz 3] '{title}' karaktersiz devam ediyor.");
-                    }
-                }
-            );
-        }
-
-        private static void OpenRosterViewerPage(int page)
-        {
-            var chars = UniverseSaveManager.Current.Characters;
-            var u = UniverseSaveManager.Current;
-
-            if (chars.Count == 0)
-            {
-                NativePopupQueue.Enqueue(
-                    "Karakterler (0)",
-                    $"Ton: {CategoryLabels.ToneToTurkish(UniverseSaveManager.GetTone())} | Tutarlılık: {u.CanonIntegrity}/100 | Lore Bariyeri: {u.LoreBarrier}/100\n\n" +
-                    "Henüz kayıtlı karakterin yok. 'Yeni Karakter Yaz' ile ilk efsaneni oluştur!",
-                    new[] { "Atölyeye Dön" },
-                    _ => OpenCharacterHub(_draftGamePtr, _draftGameTitle)
-                );
-                return;
-            }
-
-            int perPage = 3;
-            int totalPages = Math.Max(1, (chars.Count + perPage - 1) / perPage);
-            page = Math.Clamp(page, 0, totalPages - 1);
-
-            var lines = new List<string>();
-            lines.Add($"Sayfa {page + 1}/{totalPages} | Ton: {CategoryLabels.ToneToTurkish(UniverseSaveManager.GetTone())} | Bariyer: {u.LoreBarrier}/100");
-            lines.Add("");
-
-            int start = page * perPage;
-            for (int i = 0; i < perPage && (start + i) < chars.Count; i++)
-            {
-                var c = chars[start + i];
-                string fatigue = c.ConsecutiveUses >= 3 ? "YORGUN!" : $"Dinç (Seri:{c.ConsecutiveUses})";
-                lines.Add($"• {c.Name} [{c.Status}] ({c.ArchetypeName}) — Pop: {c.Popularity}/100 | Oyun: {c.GamesAppeared} | {fatigue}");
-            }
-
-            var btns = new List<string>();
-            if (page > 0) btns.Add("< Önceki Sayfa");
-            if (page < totalPages - 1) btns.Add("Sonraki Sayfa >");
-            btns.Add("Atölyeye Dön");
-
-            NativePopupQueue.Enqueue(
-                $"Karakterler ({chars.Count})",
-                string.Join("\n", lines),
-                btns.ToArray(),
-                opt =>
-                {
-                    string picked = (opt >= 0 && opt < btns.Count) ? btns[opt] : "Atölyeye Dön";
-                    if (picked == "< Önceki Sayfa") OpenRosterViewerPage(page - 1);
-                    else if (picked == "Sonraki Sayfa >") OpenRosterViewerPage(page + 1);
-                    else OpenCharacterHub(_draftGamePtr, _draftGameTitle);
-                }
-            );
-        }
-
-        private static void OpenReturningCharacterPage(int page)
-        {
-            var chars = UniverseSaveManager.Current.Characters;
-            int perPage = 3;
-            int totalPages = Math.Max(1, (chars.Count + perPage - 1) / perPage);
-            page = Math.Clamp(page, 0, totalPages - 1);
-
-            int start = page * perPage;
-            var lines = new List<string>();
-            var btns = new List<string>();
-            var pageChars = new List<CharacterRecord>();
-
-            lines.Add($"Geri çağırılacak karakteri seç (Sayfa {page + 1}/{totalPages}):");
-            lines.Add("Not: Aynı karakteri üst üste 3+ oyunda kullanmak Karakter Yorgunluğu yaratır.\n");
-
-            for (int i = 0; i < perPage && (start + i) < chars.Count; i++)
-            {
-                var c = chars[start + i];
-                pageChars.Add(c);
-                string fatigue = c.ConsecutiveUses >= 3 ? "YORGUN!" : $"Seri: {c.ConsecutiveUses}";
-                lines.Add($"• {c.Name} [{c.Status}] — {c.ArchetypeName} (Pop: {c.Popularity}, {fatigue})");
-                btns.Add(c.Name);
-            }
-
-            string navBtn = (page < totalPages - 1) ? "Sonraki Sayfa >" : "Atölyeye Dön";
-            btns.Add(navBtn);
-
-            NativePopupQueue.Enqueue(
-                $"Eski Yıldızı Çağır: {_draftGameTitle}",
-                string.Join("\n", lines),
-                btns.ToArray(),
-                opt =>
-                {
-                    if (opt >= 0 && opt < pageChars.Count)
-                    {
-                        var c = pageChars[opt];
-                        _gameCharacters[_draftGamePtr] = new ActiveCharacterDraft
-                        {
-                            IsReturning = true,
-                            ExistingCharacterId = c.Id,
-                            Name = c.Name,
-                            ArchetypeId = c.ArchetypeId,
-                            Sliders = (c.Sliders != null && c.Sliders.Length == 9) ? (float[])c.Sliders.Clone() : new float[9]
-                        };
-                        MelonLogger.Msg($"[Faz 3] Eski karakter geri cagrildi: '{c.Name}' (Seri: {c.ConsecutiveUses})");
-                    }
-                    else if (navBtn == "Sonraki Sayfa >")
-                    {
-                        OpenReturningCharacterPage(page + 1);
-                    }
-                    else
-                    {
-                        OpenCharacterHub(_draftGamePtr, _draftGameTitle);
-                    }
-                }
-            );
-        }
-
-        private static void OpenArchetypePage(int page)
-        {
-            // 10 arketip: Sayfa 0 (0,1,2 + Diger), Sayfa 1 (3,4,5 + Diger), Sayfa 2 (6,7,8,9)
-            if (page == 0)
-            {
-                var a0 = Phase1Database.Archetypes[0];
-                var a1 = Phase1Database.Archetypes[1];
-                var a2 = Phase1Database.Archetypes[2];
-                NativePopupQueue.Enqueue(
-                    "Arketip Seç (1/3)",
-                    $"Oyun türüne ve evren tonuna uyacak başrol arketipini seç:\n\n" +
-                    $"• {a0.Name}: {a0.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a0.PreferredTone)})\n" +
-                    $"• {a1.Name}: {a1.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a1.PreferredTone)})\n" +
-                    $"• {a2.Name}: {a2.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a2.PreferredTone)})",
-                    new[] { a0.Name, a1.Name, a2.Name, "Diğer Arketipler >" },
-                    opt =>
-                    {
-                        if (opt == 3) OpenArchetypePage(1);
-                        else { _draftArchetypeIdx = Math.Clamp(opt, 0, 2); OpenNamePicker(); }
-                    }
-                );
-            }
-            else if (page == 1)
-            {
-                var a3 = Phase1Database.Archetypes[3];
-                var a4 = Phase1Database.Archetypes[4];
-                var a5 = Phase1Database.Archetypes[5];
-                NativePopupQueue.Enqueue(
-                    "Arketip Seç (2/3)",
-                    $"Oyun türüne ve evren tonuna uyacak başrol arketipini seç:\n\n" +
-                    $"• {a3.Name}: {a3.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a3.PreferredTone)})\n" +
-                    $"• {a4.Name}: {a4.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a4.PreferredTone)})\n" +
-                    $"• {a5.Name}: {a5.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a5.PreferredTone)})",
-                    new[] { a3.Name, a4.Name, a5.Name, "Son 4 Arketip >" },
-                    opt =>
-                    {
-                        if (opt == 3) OpenArchetypePage(2);
-                        else { _draftArchetypeIdx = 3 + Math.Clamp(opt, 0, 2); OpenNamePicker(); }
-                    }
-                );
-            }
-            else
-            {
-                var a6 = Phase1Database.Archetypes[6];
-                var a7 = Phase1Database.Archetypes[7];
-                var a8 = Phase1Database.Archetypes[8];
-                var a9 = Phase1Database.Archetypes[9];
-                NativePopupQueue.Enqueue(
-                    "Arketip Seç (3/3)",
-                    $"Son 4 arketip:\n\n" +
-                    $"• {a6.Name}: {a6.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a6.PreferredTone)})\n" +
-                    $"• {a7.Name}: {a7.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a7.PreferredTone)})\n" +
-                    $"• {a8.Name}: {a8.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a8.PreferredTone)})\n" +
-                    $"• {a9.Name}: {a9.ShortDesc} (Ton: {CategoryLabels.ToneToTurkish(a9.PreferredTone)})",
-                    new[] { a6.Name, a7.Name, a8.Name, a9.Name },
-                    opt =>
-                    {
-                        _draftArchetypeIdx = 6 + Math.Clamp(opt, 0, 3);
-                        OpenNamePicker();
-                    }
-                );
-            }
-        }
-
-        private static void OpenNamePicker()
-        {
-            var pool = Phase1Database.CharacterNamePool;
-            int idx0 = (_namePage * 3) % pool.Length;
-            int idx1 = (_namePage * 3 + 1) % pool.Length;
-            int idx2 = (_namePage * 3 + 2) % pool.Length;
-            string n0 = pool[idx0], n1 = pool[idx1], n2 = pool[idx2];
-            var arch = Phase1Database.Archetypes[_draftArchetypeIdx];
-
-            NativePopupQueue.Enqueue(
-                $"Karakter Adı Seç ({arch.Name})",
-                $"Seçili Arketip: {arch.Name} ({arch.ShortDesc})\n\n" +
-                "Karakterine bir isim seç veya 'Başka İsimler >' ile diğer önerilere bak:",
-                new[] { n0, n1, n2, "Başka İsimler >" },
-                opt =>
-                {
-                    if (opt == 3)
-                    {
-                        _namePage++;
-                        OpenNamePicker();
-                    }
-                    else
-                    {
-                        _draftName = opt == 1 ? n1 : (opt == 2 ? n2 : n0);
-                        OpenSliderStage(0);
-                    }
-                }
-            );
-        }
-
-        private static void OpenSliderStage(int stageIdx)
-        {
-            int b = stageIdx * 3;
-            int v0 = _draftSlidersPct[b];
-            int v1 = _draftSlidersPct[b + 1];
-            int v2 = _draftSlidersPct[b + 2];
-            int sum = v0 + v1 + v2;
-
-            string[] titles =
-            {
-                $"1/3 Duruş Ayarları — {_draftName}",
-                $"2/3 Psikoloji Ayarları — {_draftName}",
-                $"3/3 Sosyallik Ayarları — {_draftName}"
-            };
-
-            string[] nextLabels =
-            {
-                "Sonraki: Psikoloji >",
-                "Sonraki: Sosyallik >",
-                "Karakteri Onayla"
-            };
-
-            var arch = Phase1Database.Archetypes[_draftArchetypeIdx];
-            string body =
-                $"Arketip: {arch.Name}  |  Odak Bütçesi: {sum} / {BalanceCaps.StageSliderBudgetPct}\n" +
-                "Bir özelliğe tıkladıkça +%20 artar (sınırı geçince %0'a döner):\n\n" +
-                $"• {Phase1Database.SliderNames[b]}: {MakeBar(v0)} %{v0} ({Phase1Database.SliderHints[b]})\n" +
-                $"• {Phase1Database.SliderNames[b + 1]}: {MakeBar(v1)} %{v1} ({Phase1Database.SliderHints[b + 1]})\n" +
-                $"• {Phase1Database.SliderNames[b + 2]}: {MakeBar(v2)} %{v2} ({Phase1Database.SliderHints[b + 2]})";
-
-            NativePopupQueue.Enqueue(
-                titles[stageIdx],
-                body,
-                new[]
-                {
-                    $"{Phase1Database.SliderNames[b]} (+20)",
-                    $"{Phase1Database.SliderNames[b + 1]} (+20)",
-                    $"{Phase1Database.SliderNames[b + 2]} (+20)",
-                    nextLabels[stageIdx]
-                },
-                opt =>
-                {
-                    if (opt >= 0 && opt <= 2)
-                    {
-                        int target = b + opt;
-                        int others = sum - _draftSlidersPct[target];
-                        int nextVal = _draftSlidersPct[target] + 20;
-                        if (nextVal > 100 || others + nextVal > BalanceCaps.StageSliderBudgetPct)
-                            nextVal = 0;
-                        _draftSlidersPct[target] = nextVal;
-                        OpenSliderStage(stageIdx);
-                    }
-                    else if (stageIdx < 2)
-                    {
-                        OpenSliderStage(stageIdx + 1);
-                    }
-                    else
-                    {
-                        var floats = new float[9];
-                        for (int i = 0; i < 9; i++) floats[i] = _draftSlidersPct[i] / 100f;
-
-                        _gameCharacters[_draftGamePtr] = new ActiveCharacterDraft
-                        {
-                            IsReturning = false,
-                            Name = _draftName,
-                            ArchetypeId = arch.Id,
-                            Sliders = floats
-                        };
-                        MelonLogger.Msg($"[Faz 3] Yeni karakter onaylandi: '{_draftName}' ({arch.Name})");
-                    }
-                }
-            );
-        }
-
-        private static string MakeBar(int pct)
-        {
-            int filled = Math.Clamp(pct / 20, 0, 5);
-            return "[" + new string('#', filled) + new string('-', 5 - filled) + "]";
         }
     }
 
     // =========================================================================
-    // 6. 10X ARASTIRMA PUANI TURBO SISTEMI (KANCASIZ - TEST MODU)
+    // 7. 10X ARASTIRMA PUANI TURBO SISTEMI (KANCASIZ - TEST MODU)
     // =========================================================================
     public static class ResearchTurboSystem
     {
@@ -1145,6 +1624,7 @@ namespace UniverseArchitect
             }
 
             EngineFeatureInjectorHelper.SyncWithCompany(company);
+            CharacterWorkshopUGUI.EnsureHUD();
 
             if (!ModSettings.TestMode10xResearch) return;
             if (!SafeReflection.TryGetNumericMember(company, out double currentRP, out string memberName,
@@ -1162,8 +1642,8 @@ namespace UniverseArchitect
                     MelonLogger.Msg($"[NJG-Turbo] 10x Arastirma Turbo aktif! (+{ModSettings.TestStarterResearchBoost} RP -> {boosted:F0})");
                     NotificationHelper.Show(
                         company,
-                        "Faz 3 Karakter Atölyesi + 10x Turbo Hazır!",
-                        "Yeni oyunlarında Evren Konumu'nun hemen ardından 10 arketip ve 3×3 kaydırıcılı (Duruş, Psikoloji, Sosyallik) Karakter Atölyesi açılacak!"
+                        "Faz 3.1 Sürüklemeli Karakter Atölyesi Hazır!",
+                        "Yeni oyunlarında artık sürüklemeli 3×3 kaydırıcılar, kaydırılabilir arketip ızgarası ve çoklu karakter kadrosu (Başrol, Kötü Adam, Yardımcı, Herhangi Biri) seni bekliyor!"
                     );
                 }
             }
@@ -1192,7 +1672,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 7. ANA MOD GIRISI
+    // 8. ANA MOD GIRISI + KONU & MOTOR ENJEKSIYONLARI
     // =========================================================================
     public class UniverseArchitectMod : MelonMod
     {
@@ -1207,17 +1687,17 @@ namespace UniverseArchitect
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect v3.0.1 (Faz 3: Native 4-Butonlu 10 Arketip + 3x3 Karakter Atolyesi) baslatiliyor...");
+            LoggerInstance.Msg("Universe Architect v3.1.0 (uGUI Suruklemeli Slider + Kaydirilabilir Arketip + Coklu Kadro) baslatiliyor...");
             UniverseSaveManager.Load();
 
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v301");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v310");
                 harmony.PatchAll();
 
                 int patchedCount = 0;
                 foreach (var _ in harmony.GetPatchedMethods()) patchedCount++;
-                LoggerInstance.Msg($"[Universe Architect] Tum v3.0.1 yamalari uygulandi! (Yamalanan metot sayisi: {patchedCount})");
+                LoggerInstance.Msg($"[Universe Architect] Tum v3.1.0 yamalari uygulandi! (Yamalanan metot sayisi: {patchedCount})");
             }
             catch (Exception ex)
             {
@@ -1228,8 +1708,6 @@ namespace UniverseArchitect
         public override void OnUpdate()
         {
             float dt = Time.unscaledDeltaTime;
-
-            // Native 4-butonlu pencere kuyrugunu islet
             NativePopupQueue.Tick(dt);
 
             if (!TopicsInjected || !EngineFeaturesInjected)
@@ -1273,15 +1751,9 @@ namespace UniverseArchitect
             }
         }
 
-        public static int ApplyCappedModHype(int rawModHype)
-        {
-            return Math.Min(rawModHype, BalanceCaps.MaxTotalModHype);
-        }
+        public static int ApplyCappedModHype(int rawModHype) => Math.Min(rawModHype, BalanceCaps.MaxTotalModHype);
     }
 
-    // =========================================================================
-    // 8. KONU & MOTOR / AR-GE ENJEKSIYONLARI (KANCASIZ)
-    // =========================================================================
     public static class TopicInjectorHelper
     {
         public static void TryInjectTopics()
@@ -1291,7 +1763,6 @@ namespace UniverseArchitect
             {
                 var allTopicsAssets = UnityEngine.Resources.FindObjectsOfTypeAll<Topics>();
                 if (allTopicsAssets == null || allTopicsAssets.Length == 0) return;
-
                 var topicsAsset = allTopicsAssets[0];
                 if (topicsAsset == null || topicsAsset.topics == null || topicsAsset.topics.Count == 0) return;
 
@@ -1431,7 +1902,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 9. INCELEME: FAZ 1 + FAZ 2 + FAZ 3 (KARAKTER KIMYASI, LORE BARIYERI, ARA EVREN)
+    // 9. INCELEME: FAZ 1 + FAZ 2 + FAZ 3.1 (COKLU KADRO & 4 ROL KIMYASI)
     // =========================================================================
     [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
@@ -1455,15 +1926,16 @@ namespace UniverseArchitect
                 string topicId = game.topic != null ? game.topic.id : null;
                 string genreName = ExtractGenreName(game);
                 ProjectCategory category = UniverseChoicePopupSystem.GetCategoryForGame(game);
-                ActiveCharacterDraft charDraft = UniverseChoicePopupSystem.GetCharacterForGame(game);
+                var cast = UniverseChoicePopupSystem.GetCastForGame(game);
 
                 int totalModHype = 0;
                 int hypePenalty = 0;
                 double totalScoreMult = 1.0;
                 var activeBonusNotes = new List<string>();
                 var usedModFeatures = new List<string>();
+                var castSummary = new List<string>();
 
-                // A) Onceki oyundan kalan Post-Credits Hype aktarimi
+                // A) Post-Credits Hype aktarimi
                 if (UniverseSaveManager.Current.PendingPostCreditsHype > 0)
                 {
                     int carried = UniverseSaveManager.Current.PendingPostCreditsHype;
@@ -1483,7 +1955,6 @@ namespace UniverseArchitect
 
                 // C) 5 Yeni Motor Ozelligi
                 var featureIds = ExtractAllFeatureIds(game);
-
                 if (featureIds.Contains("njg_lore_link"))
                 {
                     usedModFeatures.Add("njg_lore_link");
@@ -1571,17 +2042,15 @@ namespace UniverseArchitect
                     activeBonusNotes.Add("Evren Dışı (Bağımsız proje)");
                 }
 
-                // E) FAZ 3: KARAKTER KIMYASI (ARKETIP x TUR x 3x3 KAYDIRICI x EVREN TONU)
-                string usedCharName = "";
-                if (charDraft != null && category != ProjectCategory.NonUniverse)
+                // E) FAZ 3.1: COKLU KARAKTER KADROSU DEGERLENDIRMESI (4 ROL)
+                if (cast != null && cast.Count > 0 && category != ProjectCategory.NonUniverse)
                 {
-                    usedCharName = charDraft.Name;
-                    EvaluateCharacter(company, game, title, genreName, category, charDraft,
+                    EvaluateCast(company, title, genreName, category, cast, castSummary,
                         ref totalScoreMult, ref totalModHype, ref hypePenalty, activeBonusNotes);
                 }
                 else
                 {
-                    UniverseSaveManager.RestOtherCharacters("");
+                    UniverseSaveManager.RestUnusedCharacters(null);
                 }
 
                 // F) Global Denge Tavanlariyla Skor & Hype Uygula
@@ -1609,15 +2078,12 @@ namespace UniverseArchitect
 
                 if (activeBonusNotes.Count > 0)
                 {
-                    NotificationHelper.Show(
-                        company,
-                        $"[{CategoryLabels.ToTurkish(category)}] {title}",
-                        string.Join(" | ", activeBonusNotes)
-                    );
+                    NotificationHelper.Show(company, $"[{CategoryLabels.ToTurkish(category)}] {title}", string.Join(" | ", activeBonusNotes));
                 }
 
-                UniverseSaveManager.RecordReleasedGame(game, topicId, game.score, category, usedModFeatures, usedCharName);
-                MelonLogger.Msg($"[Universe Architect] Kaydedildi: '{title}' | {CategoryLabels.ToTurkish(category)} | Karakter: {(string.IsNullOrEmpty(usedCharName) ? "-" : usedCharName)} | Skor: {game.score:F2}");
+                UniverseSaveManager.RecordReleasedGame(game, topicId, game.score, category, usedModFeatures, castSummary);
+                CharacterWorkshopUGUI.EnsureHUD();
+                MelonLogger.Msg($"[Universe Architect] Kaydedildi: '{title}' | {CategoryLabels.ToTurkish(category)} | Kadro: {castSummary.Count} | Skor: {game.score:F2}");
             }
             catch (Exception ex)
             {
@@ -1625,110 +2091,141 @@ namespace UniverseArchitect
             }
         }
 
-        private static void EvaluateCharacter(
-            Company company, Game game, string gameTitle, string genreName, ProjectCategory category,
-            ActiveCharacterDraft draft, ref double scoreMult, ref int modHype, ref int hypePenalty, List<string> notes)
+        private static void EvaluateCast(
+            Company company, string gameTitle, string genreName, ProjectCategory category,
+            List<ActiveCharacterDraft> cast, List<string> castSummary,
+            ref double scoreMult, ref int modHype, ref int hypePenalty, List<string> notes)
         {
-            var arch = Phase1Database.FindArchetype(draft.ArchetypeId);
+            double ensembleScoreDelta = 0.0;
+            var usedIds = new HashSet<string>();
 
-            // 1) Arketip x Oyun Turu uyumu
-            double genreFit = 0.75;
-            if (!string.IsNullOrEmpty(genreName) && arch.GenreWeights.TryGetValue(genreName, out double gw))
-                genreFit = gw;
-
-            // 2) 3x3 Kaydirici x Arketip uyumu
-            double diffSum = 0.0;
-            for (int i = 0; i < 9; i++)
+            for (int cIdx = 0; cIdx < cast.Count; cIdx++)
             {
-                float actual = (draft.Sliders != null && i < draft.Sliders.Length) ? draft.Sliders[i] : 0.5f;
-                diffSum += Math.Abs(actual - arch.IdealSliders[i]);
-            }
-            double sliderFit = Math.Clamp(1.0 - (diffSum / 9.0) * 1.50, 0.20, 1.0);
+                var draft = cast[cIdx];
+                var arch = Phase1Database.FindArchetype(draft.ArchetypeId);
 
-            // 3) Evren Tonu uyumu
-            double toneMod = 0.0;
-            string toneNote = "";
-            var uTone = UniverseSaveManager.GetTone();
-            if (uTone != UniverseTone.None)
-            {
-                if (arch.PreferredTone == uTone) { toneMod = +0.08; toneNote = " (Evren tonuyla tam uyum!)"; }
-                else if (arch.ClashingTone == uTone) { toneMod = -0.10; toneNote = " (Evren tonuyla çatışma!)"; }
-            }
-
-            double chemistry = Math.Clamp(genreFit * 0.45 + sliderFit * 0.55 + toneMod, 0.15, 1.0);
-            int chemPct = (int)Math.Round(chemistry * 100.0);
-
-            CharacterRecord rec = draft.IsReturning
-                ? UniverseSaveManager.FindCharacterById(draft.ExistingCharacterId)
-                : null;
-
-            if (rec == null)
-            {
-                rec = new CharacterRecord
+                double roleWeight = draft.Role switch
                 {
-                    Id = Guid.NewGuid().ToString("N").Substring(0, 8),
-                    Name = draft.Name,
-                    ArchetypeId = arch.Id,
-                    ArchetypeName = arch.Name,
-                    Sliders = (float[])draft.Sliders.Clone(),
-                    DebutGame = gameTitle,
-                    Popularity = chemPct
+                    CharacterRole.Protagonist => 1.00,
+                    CharacterRole.Villain     => 0.75,
+                    CharacterRole.Sidekick    => 0.55,
+                    _                         => 0.30
                 };
-                UniverseSaveManager.Current.Characters.Add(rec);
+
+                double genreFit = 0.75;
+                if (!string.IsNullOrEmpty(genreName) && arch.GenreWeights.TryGetValue(genreName, out double gw))
+                    genreFit = gw;
+
+                double diffSum = 0.0;
+                for (int i = 0; i < 9; i++)
+                {
+                    float actual = (draft.Sliders != null && i < draft.Sliders.Length) ? draft.Sliders[i] : 0.5f;
+                    diffSum += Math.Abs(actual - arch.IdealSliders[i]);
+                }
+                double sliderFit = Math.Clamp(1.0 - (diffSum / 9.0) * 1.50, 0.20, 1.0);
+
+                double toneMod = 0.0;
+                var uTone = UniverseSaveManager.GetTone();
+                if (uTone != UniverseTone.None)
+                {
+                    if (arch.PreferredTone == uTone) toneMod = +0.08;
+                    else if (arch.ClashingTone == uTone) toneMod = -0.10;
+                }
+
+                double chemistry = Math.Clamp(genreFit * 0.45 + sliderFit * 0.55 + toneMod, 0.15, 1.0);
+                int chemPct = (int)Math.Round(chemistry * 100.0);
+
+                CharacterRecord rec = draft.IsReturning
+                    ? UniverseSaveManager.FindCharacterById(draft.ExistingCharacterId)
+                    : null;
+
+                if (rec == null)
+                {
+                    rec = new CharacterRecord
+                    {
+                        Id = Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Name = draft.Name,
+                        ArchetypeId = arch.Id,
+                        ArchetypeName = arch.Name,
+                        DebutGame = gameTitle,
+                        Sliders = (float[])draft.Sliders.Clone(),
+                        Popularity = chemPct
+                    };
+                    UniverseSaveManager.Current.Characters.Add(rec);
+                }
+
+                rec.LastRole = CategoryLabels.RoleToTurkish(draft.Role);
+                rec.GamesAppeared++;
+                rec.ConsecutiveUses++;
+                usedIds.Add(rec.Id);
+                castSummary.Add($"{rec.Name} ({rec.LastRole})");
+
+                // Yorgunluk kontrolu
+                if (draft.IsReturning && rec.ConsecutiveUses >= 3)
+                {
+                    ensembleScoreDelta -= 0.04 * roleWeight;
+                    hypePenalty += (int)Math.Round(5 * roleWeight);
+                    rec.Popularity = Math.Clamp(rec.Popularity - 8, 10, 100);
+                    notes.Add($"Yorgun Karakter: {rec.Name} ({rec.ConsecutiveUses}. seri)");
+                    NotificationHelper.Show(company, $"Karakter Yorgunluğu: {rec.Name}",
+                        $"Hayranlar {rec.Name} karakterini üst üste görmekten yoruldu! Birkaç oyun dinlendirirsen yeniden özlenecek.");
+                    continue;
+                }
+
+                if (chemistry >= 0.78)
+                {
+                    ensembleScoreDelta += 0.06 * roleWeight;
+                    int hypeAdd = (int)Math.Max(2, Math.Round((draft.Role == CharacterRole.Villain ? 10 : 8) * roleWeight));
+                    modHype += hypeAdd;
+                    double fanBoost = Math.Max(25.0, Math.Round(company.fans * 0.05 * roleWeight));
+                    company.adjustFans(fanBoost);
+
+                    rec.Status = draft.Role == CharacterRole.Minor ? "Kült" : "Yıldız";
+                    rec.Popularity = Math.Clamp(Math.Max(rec.Popularity, chemPct) + 5, 10, 100);
+                    notes.Add($"{rec.LastRole} {rec.Name} [%{chemPct}] (+{hypeAdd} Hype)");
+
+                    if (draft.Role == CharacterRole.Minor)
+                    {
+                        NotificationHelper.Show(company, $"Sürpriz Kült Karakter: {rec.Name}!",
+                            $"{gameTitle} oyununda sadece yan rol olarak geçen {rec.Name} ({arch.Name}) %{chemPct} uyumla internette viral oldu! (+{fanBoost:F0} Hayran)");
+                    }
+                    else
+                    {
+                        NotificationHelper.Show(company, $"Hayranlar {rec.Name} ({rec.LastRole}) Karakterine Bayıldı!",
+                            $"{gameTitle} oyunundaki {rec.Name} ({arch.Name}) uyumu %{chemPct} ile efsaneleşti! (+{fanBoost:F0} Hayran)");
+                    }
+                }
+                else if (chemistry >= 0.60)
+                {
+                    ensembleScoreDelta += 0.02 * roleWeight;
+                    modHype += (int)Math.Max(1, Math.Round(3 * roleWeight));
+                    if (rec.Status != "Yıldız" && rec.Status != "Kült") rec.Status = "Sevilen";
+                    rec.Popularity = Math.Clamp((rec.Popularity + chemPct) / 2, 10, 100);
+                    notes.Add($"Sevilen {rec.LastRole}: {rec.Name} [%{chemPct}]");
+                }
+                else if (chemistry < 0.45)
+                {
+                    ensembleScoreDelta -= 0.07 * roleWeight;
+                    hypePenalty += (int)Math.Round(6 * roleWeight);
+                    rec.Status = "Fiyasko";
+                    rec.Popularity = Math.Clamp(chemPct, 5, 45);
+                    if (category == ProjectCategory.MainUniverse && draft.Role != CharacterRole.Minor)
+                        UniverseSaveManager.AdjustIntegrity(-5);
+                    notes.Add($"Fiyasko {rec.LastRole}: {rec.Name} [%{chemPct}]");
+
+                    if (draft.Role != CharacterRole.Minor)
+                    {
+                        NotificationHelper.Show(company, $"Oyuncular {rec.Name} ({rec.LastRole}) Karakterinden Nefret Etti!",
+                            $"{gameTitle} ({genreName}) için {rec.Name} ({arch.Name}) hiç uymadı (%{chemPct}). Eleştirmenler karakterin oyunun havasını bozduğunu yazıyor!");
+                    }
+                }
             }
 
-            rec.GamesAppeared++;
-            rec.ConsecutiveUses++;
-            UniverseSaveManager.RestOtherCharacters(rec.Id);
+            // Coklu kadro denge tavani (-%10 ile +%12 arasi)
+            ensembleScoreDelta = Math.Clamp(ensembleScoreDelta, -0.10, 0.12);
+            scoreMult *= (1.0 + ensembleScoreDelta);
 
-            if (draft.IsReturning && rec.ConsecutiveUses >= 3)
-            {
-                scoreMult *= 0.95;
-                hypePenalty += 5;
-                rec.Popularity = Math.Clamp(rec.Popularity - 8, 10, 100);
-                notes.Add($"Karakter Yorgunluğu: {rec.Name} ({rec.ConsecutiveUses}. üst üste oyun, -%5 Skor, -5 Hype)");
-                NotificationHelper.Show(company, $"Karakter Yorgunluğu: {rec.Name}",
-                    $"Hayranlar {rec.Name} karakterini üst üste görmekten yoruldu! Birkaç oyun dinlendirirsen yeniden özlenecek.");
-                return;
-            }
-
-            if (chemistry >= 0.78)
-            {
-                scoreMult *= 1.06;
-                modHype += 8;
-                double fanBoost = Math.Max(40.0, Math.Round(company.fans * 0.06));
-                company.adjustFans(fanBoost);
-                rec.Status = "Yıldız";
-                rec.Popularity = Math.Clamp(Math.Max(rec.Popularity, chemPct) + 5, 10, 100);
-                notes.Add($"İkonik Karakter: {rec.Name} [Uyum %{chemPct}] (+%6 Skor, +8 Hype){toneNote}");
-
-                NotificationHelper.Show(company, $"Hayranlar {rec.Name} Karakterine Bayıldı!",
-                    $"{gameTitle} oyunundaki {rec.Name} ({arch.Name}) uyumu %{chemPct} ile efsaneleşti! Sosyal medyada replikleri paylaşılıyor (+{fanBoost:F0} Hayran).");
-            }
-            else if (chemistry >= 0.60)
-            {
-                scoreMult *= 1.02;
-                modHype += 3;
-                if (rec.Status != "Yıldız") rec.Status = "Sevilen";
-                rec.Popularity = Math.Clamp((rec.Popularity + chemPct) / 2, 10, 100);
-                notes.Add($"Sevilen Karakter: {rec.Name} [Uyum %{chemPct}] (+%2 Skor, +3 Hype){toneNote}");
-            }
-            else if (chemistry >= 0.45)
-            {
-                notes.Add($"Sıradan Karakter: {rec.Name} [Uyum %{chemPct}]{toneNote}");
-            }
-            else
-            {
-                scoreMult *= 0.93;
-                hypePenalty += 6;
-                rec.Status = "Fiyasko";
-                rec.Popularity = Math.Clamp(chemPct, 5, 45);
-                if (category == ProjectCategory.MainUniverse) UniverseSaveManager.AdjustIntegrity(-6);
-                notes.Add($"Fiyasko Karakter: {rec.Name} [Uyum %{chemPct}] (-%7 Skor, -6 Hype){toneNote}");
-
-                NotificationHelper.Show(company, $"Oyuncular {rec.Name} Karakterinden Nefret Etti!",
-                    $"{gameTitle} ({genreName}) için {rec.Name} ({arch.Name}) hiç uymadı (Uyum %{chemPct}). Eleştirmenler karakterin oyunun havasını bozduğunu yazıyor!");
-            }
+            UniverseSaveManager.RestUnusedCharacters(usedIds);
         }
 
         private static string ExtractGenreName(Game game)
