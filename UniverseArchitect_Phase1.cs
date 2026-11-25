@@ -565,7 +565,7 @@ public static class TopicIconInjectorHelper
     }
 
     // =========================================================================
-    // 7. MOTOR / AR-GE ENJEKSIYONU (KANCASIZ Research ScriptableObject)
+    // 7. MOTOR / AR-GE ENJEKSIYONU (KANCASIZ Research ScriptableObject - v1.1.1)
     // =========================================================================
     public static class EngineFeatureInjectorHelper
     {
@@ -588,29 +588,19 @@ public static class TopicIconInjectorHelper
                 if ((allItems == null || allItems.Count == 0) && (engineItems == null || engineItems.Count == 0))
                     return;
 
-                // En erken donemde acilan guvenli bir Engine ozelligini sablon sec
                 ResearchItem template = null;
                 if (engineItems != null && engineItems.Count > 0)
                 {
                     template = engineItems[0];
                 }
-                else if (allItems != null)
+                else if (allItems != null && allItems.Count > 0)
                 {
-                    for (int i = 0; i < allItems.Count; i++)
-                    {
-                        var c = allItems[i];
-                        if (c != null && c.engineCost.HasValue)
-                        {
-                            template = c;
-                            break;
-                        }
-                    }
-                    if (template == null && allItems.Count > 0) template = allItems[0];
+                    template = allItems[0];
                 }
 
                 if (template == null) return;
 
-                MelonLogger.Msg($"[NJG-Debug] Research bulundu! allItems: {allItems?.Count ?? 0}, engineItems: {engineItems?.Count ?? 0}, Sablon: {template.id} (Kategori: {template.category}, TechLevel: {(template.techLevel.HasValue ? template.techLevel.Value.ToString() : "null")})");
+                MelonLogger.Msg($"[NJG-Debug] Research bulundu! allItems: {allItems?.Count ?? 0}, engineItems: {engineItems?.Count ?? 0}, Sablon: {template.id}");
 
                 int addedCount = 0;
                 foreach (var feat in Phase1Database.EngineFeatures)
@@ -629,19 +619,22 @@ public static class TopicIconInjectorHelper
                     item.iconUri = template.iconUri;
                     item.type = template.type;
 
-                    // Erken donemde (garaj / ilk motor) arastirilabilir olsun
+                    // IL2CPP Nullable alanlarini template'ten okumak yerine dogrudan temiz olusturuyoruz
                     item.v = new Il2CppSystem.Nullable<int>(1);
                     item.techLevel = new Il2CppSystem.Nullable<int>(1);
                     item.cost = new Il2CppSystem.Nullable<double>(feat.ResearchCost);
                     item.engineCost = new Il2CppSystem.Nullable<double>(feat.EngineCost);
                     item.pointsCost = new Il2CppSystem.Nullable<double>(feat.ResearchPoints);
                     item.enginePoints = new Il2CppSystem.Nullable<int>(feat.EnginePoints);
-                    item.duration = template.duration;
-                    item.consolePart = template.consolePart;
-                    item.canResearch = template.canResearch;
-                    item.canUse = template.canUse;
-                    item.complete = template.complete;
-                    item.cancel = template.cancel;
+                    item.duration = new Il2CppSystem.Nullable<double>(10000);
+                    item.consolePart = new Il2CppSystem.Nullable<bool>(false);
+
+                    // Delege alanlarini guvenle kopyala
+                    try { item.canResearch = template.canResearch; } catch { }
+                    try { item.canUse = template.canUse; } catch { }
+                    try { item.complete = template.complete; } catch { }
+                    try { item.cancel = template.cancel; } catch { }
+
                     item.version = 1;
 
                     if (allItems != null && !ContainsId(allItems, feat.Id))
@@ -670,107 +663,6 @@ public static class TopicIconInjectorHelper
             {
                 if (list[i] != null && list[i].id == id) return true;
             }
-            return false;
-        }
-    }
-
-    // =========================================================================
-    // 8. INCELEME PASIF BONUSLARI & CIFTE BONUS KILIDI & JSON KAYIT
-    // =========================================================================
-    [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
-    public static class Patch_ReviewGame
-    {
-        private static readonly HashSet<IntPtr> _processedGames = new HashSet<IntPtr>();
-
-        static void Postfix(Company company)
-        {
-            try
-            {
-                if (company == null || company.currentGame == null) return;
-
-                var game = company.currentGame;
-                if (game.Pointer != IntPtr.Zero && !_processedGames.Add(game.Pointer))
-                    return;
-
-                string title = !string.IsNullOrEmpty(game.title) ? game.title : "Yeni Oyun";
-                string topicId = game.topic != null ? game.topic.id : null;
-
-                var customTopic = Phase1Database.FindTopicById(topicId);
-                if (customTopic != null)
-                {
-                    if (customTopic.ScoreBonusMultiplier > 1.0)
-                    {
-                        game.score = Math.Min(10.0, game.score * customTopic.ScoreBonusMultiplier);
-                    }
-                    if (customTopic.BonusHype > 0)
-                    {
-                        int cappedHype = UniverseArchitectMod.ApplyCappedModHype(customTopic.BonusHype);
-                        company.adjustHype(cappedHype);
-                    }
-
-                    NotificationHelper.Show(
-                        company,
-                        $"Konu Bonusu: {customTopic.Name}",
-                        $"{title} için özel bonus devreye girdi: {customTopic.BonusLabel}"
-                    );
-                }
-
-                if (UniverseArchitectMod.ActiveProjectCategory == ProjectCategory.UD)
-                {
-                    game.score = Math.Min(10.0, game.score * 1.05);
-                }
-
-                UniverseSaveManager.RecordReleasedGame(game, topicId, game.score, UniverseArchitectMod.ActiveProjectCategory);
-                MelonLogger.Msg($"[Universe Architect] Oyun kaydedildi (tekil): '{title}' (Konu: {topicId ?? "standart"}, Skor: {game.score:F2})");
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Error($"[Universe Architect] ReviewGame hatasi: {ex.Message}");
-            }
-        }
-    }
-
-    // =========================================================================
-    // 9. GOOGLE PLAY GAMES OFFLINE YAMALARI
-    // =========================================================================
-    [HarmonyPatch(typeof(SocialManagerSocialImpl), "InitPlayGamesPlatform")]
-    public static class Patch_BlockInitPlayGames
-    {
-        static bool Prefix()
-        {
-            MelonLogger.Msg("[Universe Architect] InitPlayGamesPlatform durduruldu.");
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
-    public static class Patch_BlockSocialAuthenticate
-    {
-        static bool Prefix(Il2CppSystem.Action<bool, string> action)
-        {
-            MelonLogger.Msg("[Universe Architect] SocialManager.Authenticate durduruldu -> success=false.");
-            action?.Invoke(false, "Offline mod");
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(GameController), nameof(GameController.AuthenticateSocialManager))]
-    public static class Patch_BlockGameControllerAuth
-    {
-        static bool Prefix(Il2CppSystem.Action<bool> callback, bool resetUserDeclinedFlag)
-        {
-            MelonLogger.Msg("[Universe Architect] AuthenticateSocialManager durduruldu -> callback(false).");
-            callback?.Invoke(false);
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(SocialManagerSocialImpl), "get_IsAuthenticated")]
-    public static class Patch_ForceOfflineAuthState
-    {
-        static bool Prefix(ref bool __result)
-        {
-            __result = false;
             return false;
         }
     }
