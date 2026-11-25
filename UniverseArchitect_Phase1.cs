@@ -564,8 +564,8 @@ public static class TopicIconInjectorHelper
         }
     }
 
-    // =========================================================================
-    // 7. MOTOR / AR-GE ENJEKSIYONU (KANCASIZ Research ScriptableObject - v1.1.1)
+        // =========================================================================
+    // 7. MOTOR / AR-GE ENJEKSIYONU (SIFIR NULLABLE - NATIVE KLONLAMA v1.1.2)
     // =========================================================================
     public static class EngineFeatureInjectorHelper
     {
@@ -582,63 +582,43 @@ public static class TopicIconInjectorHelper
                 var research = researchAssets[0];
                 if (research == null) return;
 
+                // Logo ekraninda acele etme: allItems dolana kadar bekle
                 var allItems = research.getAllItems();
                 var engineItems = research.engineItems;
-
-                if ((allItems == null || allItems.Count == 0) && (engineItems == null || engineItems.Count == 0))
+                if (allItems == null || allItems.Count == 0)
                     return;
 
-                ResearchItem template = null;
-                if (engineItems != null && engineItems.Count > 0)
-                {
-                    template = engineItems[0];
-                }
-                else if (allItems != null && allItems.Count > 0)
-                {
-                    template = allItems[0];
-                }
+                ResearchItem template = (engineItems != null && engineItems.Count > 0)
+                    ? engineItems[0]
+                    : allItems[0];
 
                 if (template == null) return;
 
-                MelonLogger.Msg($"[NJG-Debug] Research bulundu! allItems: {allItems?.Count ?? 0}, engineItems: {engineItems?.Count ?? 0}, Sablon: {template.id}");
+                var cloneMethod = AccessTools.Method(typeof(Il2CppSystem.Object), "MemberwiseClone");
+                if (cloneMethod == null)
+                {
+                    MelonLogger.Warning("[NJG-Debug] MemberwiseClone bulunamadi, motor enjeksiyonu atlandi.");
+                    UniverseArchitectMod.EngineFeaturesInjected = true;
+                    return;
+                }
+
+                MelonLogger.Msg($"[NJG-Debug] Research hazir! allItems: {allItems.Count}, engineItems: {engineItems?.Count ?? 0}, Sablon: {template.id}");
 
                 int addedCount = 0;
                 foreach (var feat in Phase1Database.EngineFeatures)
                 {
-                    if (ContainsId(allItems, feat.Id) && ContainsId(engineItems, feat.Id))
+                    if (ContainsId(allItems, feat.Id))
                         continue;
 
-                    var item = new ResearchItem();
+                    // Nullable<T> alanlarina hic dokunmadan native IL2CPP kopyasi olustur
+                    var item = cloneMethod.Invoke(template, null) as ResearchItem;
+                    if (item == null) continue;
+
                     item.id = feat.Id;
                     item.name = feat.Name;
                     item.description = feat.Description;
-                    item.category = template.category ?? "Engine";
-                    item.categoryDisplayName = template.categoryDisplayName ?? "Engine";
-                    item.subCategory = template.subCategory;
-                    item.group = template.group;
-                    item.iconUri = template.iconUri;
-                    item.type = template.type;
 
-                    // IL2CPP Nullable alanlarini template'ten okumak yerine dogrudan temiz olusturuyoruz
-                    item.v = new Il2CppSystem.Nullable<int>(1);
-                    item.techLevel = new Il2CppSystem.Nullable<int>(1);
-                    item.cost = new Il2CppSystem.Nullable<double>(feat.ResearchCost);
-                    item.engineCost = new Il2CppSystem.Nullable<double>(feat.EngineCost);
-                    item.pointsCost = new Il2CppSystem.Nullable<double>(feat.ResearchPoints);
-                    item.enginePoints = new Il2CppSystem.Nullable<int>(feat.EnginePoints);
-                    item.duration = new Il2CppSystem.Nullable<double>(10000);
-                    item.consolePart = new Il2CppSystem.Nullable<bool>(false);
-
-                    // Delege alanlarini guvenle kopyala
-                    try { item.canResearch = template.canResearch; } catch { }
-                    try { item.canUse = template.canUse; } catch { }
-                    try { item.complete = template.complete; } catch { }
-                    try { item.cancel = template.cancel; } catch { }
-
-                    item.version = 1;
-
-                    if (allItems != null && !ContainsId(allItems, feat.Id))
-                        allItems.Add(item);
+                    allItems.Add(item);
 
                     if (engineItems != null && !ContainsId(engineItems, feat.Id))
                         engineItems.Add(item);
@@ -646,7 +626,7 @@ public static class TopicIconInjectorHelper
                     addedCount++;
                 }
 
-                MelonLogger.Msg($"[Universe Architect] {addedCount} motor ozelligi kancasiz olarak Research listelerine eklendi!");
+                MelonLogger.Msg($"[Universe Architect] {addedCount} motor ozelligi sifir Nullable ile guvenle klonlanip eklendi!");
                 UniverseArchitectMod.EngineFeaturesInjected = true;
             }
             catch (Exception ex)
