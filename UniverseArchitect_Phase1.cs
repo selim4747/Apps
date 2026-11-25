@@ -9,7 +9,7 @@ using UnityEngine;
 using Il2CppInterop.Runtime;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "2.0.0", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "2.0.1", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
@@ -28,7 +28,8 @@ namespace UniverseArchitect
     {
         MainUniverse,   // Ana Evren
         SideUniverse,   // Yan Evren
-        AltTimeline     // Alternatif Zaman
+        AltTimeline,    // Alternatif Zaman
+        NonUniverse     // Evren Disi (Bagimsiz)
     }
 
     public static class CategoryLabels
@@ -39,6 +40,7 @@ namespace UniverseArchitect
             {
                 case ProjectCategory.SideUniverse: return "Yan Evren";
                 case ProjectCategory.AltTimeline:  return "Alternatif Zaman";
+                case ProjectCategory.NonUniverse:  return "Evren Dışı";
                 default:                           return "Ana Evren";
             }
         }
@@ -478,12 +480,13 @@ namespace UniverseArchitect
         }
     }
     // =========================================================================
-    // 4. FAZ 2: EVREN CEKIRDEGI 3 BUTONLU SECIM PENCERESI (KANCASIZ)
+    // 4. FAZ 2: EVREN CEKIRDEGI 4 BUTONLU SECIM PENCERESI (options + buttonText)
     // =========================================================================
     public static class UniverseChoicePopupSystem
     {
         private static readonly HashSet<IntPtr> _promptedGames = new HashSet<IntPtr>();
         private static readonly Dictionary<IntPtr, ProjectCategory> _gameCategories = new Dictionary<IntPtr, ProjectCategory>();
+        private static bool _loggedPanelButtonsOnce = false;
 
         public static ProjectCategory GetCategoryForGame(Game game)
         {
@@ -506,8 +509,18 @@ namespace UniverseArchitect
                 var panel = UnityEngine.Object.FindObjectOfType<PanelNotifications>();
                 if (panel == null) return;
 
-                // Oyunun kendi acik bir penceresi varsa bitmesini bekle
                 if (panel.IsNotificationVisible) return;
+
+                if (!_loggedPanelButtonsOnce)
+                {
+                    _loggedPanelButtonsOnce = true;
+                    try
+                    {
+                        var btns = panel.GetComponentsInChildren<NotificationButton>(true);
+                        MelonLogger.Msg($"[Faz 2 Debug] PanelNotifications icindeki NotificationButton slot sayisi: {(btns != null ? btns.Length : 0)}");
+                    }
+                    catch { }
+                }
 
                 _promptedGames.Add(game.Pointer);
                 IntPtr capturedGamePtr = game.Pointer;
@@ -517,15 +530,22 @@ namespace UniverseArchitect
                 var notif = new Notification(
                     $"Evren Konumu: {title}",
                     $"Bu proje evreninin neresinde yer alacak?\n\n" +
-                    $"• Ana Evren (Tutarlılık: {integrity}/100): Kanon bonusu ve devam oyunu gücü, kötü puan tutarlılığı düşürür.\n" +
+                    $"• Ana Evren (Tutarlılık: {integrity}/100): Kanon bonusu ve devam oyunu gücü; kötü puan tutarlılığı düşürür.\n" +
                     $"• Yan Evren: Güvenli spin-off (+%5 Skor, tutarlılık etkilenmez).\n" +
-                    $"• Alternatif Zaman: 'Ya farklı olsaydı?' (+10 Hype, tutarlılık etkilenmez)."
+                    $"• Alternatif Zaman: 'Ya farklı olsaydı?' (+10 Hype, tutarlılık etkilenmez).\n" +
+                    $"• Evren Dışı: Bağımsız oyun (evren bonusu veya riski yok)."
                 );
 
+                // Coklu secenek butonlari icin hem options hem buttonText doldurulur
+                var labels = new[] { "Ana Evren", "Yan Evren", "Alternatif Zaman", "Evren Dışı" };
+
+                notif.options = new Il2CppSystem.Collections.Generic.List<string>();
                 notif.buttonText = new Il2CppSystem.Collections.Generic.List<string>();
-                notif.buttonText.Add("Ana Evren");
-                notif.buttonText.Add("Yan Evren");
-                notif.buttonText.Add("Alternatif Zaman");
+                for (int i = 0; i < labels.Length; i++)
+                {
+                    notif.options.Add(labels[i]);
+                    notif.buttonText.Add(labels[i]);
+                }
 
                 Action<Notification, Il2CppSystem.Action, int> onClickAction = (n, cb, selectedOption) =>
                 {
@@ -534,6 +554,7 @@ namespace UniverseArchitect
                         ProjectCategory chosen = ProjectCategory.MainUniverse;
                         if (selectedOption == 1) chosen = ProjectCategory.SideUniverse;
                         else if (selectedOption == 2) chosen = ProjectCategory.AltTimeline;
+                        else if (selectedOption == 3) chosen = ProjectCategory.NonUniverse;
 
                         UniverseArchitectMod.ActiveProjectCategory = chosen;
                         _gameCategories[capturedGamePtr] = chosen;
@@ -551,7 +572,7 @@ namespace UniverseArchitect
 
                 var il2cppDelegate = DelegateSupport.ConvertDelegate<NotificationButton.NotificationButtonDelegate>(onClickAction);
                 panel.ShowGenericNotification(notif, il2cppDelegate, null);
-                MelonLogger.Msg($"[Faz 2] 3 butonlu Evren Secim penceresi acildi: '{title}'");
+                MelonLogger.Msg($"[Faz 2] 4 butonlu Evren Secim penceresi acildi: '{title}'");
             }
             catch (Exception ex)
             {
@@ -604,7 +625,7 @@ namespace UniverseArchitect
                     NotificationHelper.Show(
                         company,
                         "Faz 2 Evren Çekirdeği + 10x Turbo Hazır!",
-                        $"Bundan sonraki her yeni oyununda Ana Evren / Yan Evren / Alternatif Zaman seçim penceresi açılacak! (+{ModSettings.TestStarterResearchBoost:F0} Ar-Ge puanı eklendi.)"
+                        $"Bundan sonraki her yeni oyununda 4 seçenekli Evren Seçim penceresi açılacak! (+{ModSettings.TestStarterResearchBoost:F0} Ar-Ge puanı eklendi.)"
                     );
                 }
             }
@@ -666,17 +687,17 @@ namespace UniverseArchitect
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect v2.0.0 (Faz 2: Evren Cekirdegi + 3 Butonlu Secim + Tutarlilik) baslatiliyor...");
+            LoggerInstance.Msg("Universe Architect v2.0.1 (Faz 2: 4 Butonlu Secim + Evren Disi + Tutarlilik) baslatiliyor...");
             UniverseSaveManager.Load();
 
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v200");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v201");
                 harmony.PatchAll();
 
                 int patchedCount = 0;
                 foreach (var _ in harmony.GetPatchedMethods()) patchedCount++;
-                LoggerInstance.Msg($"[Universe Architect] Tum v2.0.0 yamalari uygulandi! (Yamalanan metot sayisi: {patchedCount})");
+                LoggerInstance.Msg($"[Universe Architect] Tum v2.0.1 yamalari uygulandi! (Yamalanan metot sayisi: {patchedCount})");
             }
             catch (Exception ex)
             {
@@ -686,7 +707,6 @@ namespace UniverseArchitect
 
         public override void OnUpdate()
         {
-            // 1) Konu ve Motor enjeksiyonu
             if (!TopicsInjected || !EngineFeaturesInjected)
             {
                 _injectTimer += Time.unscaledDeltaTime;
@@ -703,7 +723,6 @@ namespace UniverseArchitect
 
             if (ActiveCompany == null) return;
 
-            // 2) Faz 2: Yeni oyun basladiginda 3 butonlu Evren Secim penceresini ac (1 sn aralikla)
             _popupPollTimer += Time.unscaledDeltaTime;
             if (_popupPollTimer >= 1.0f)
             {
@@ -712,7 +731,6 @@ namespace UniverseArchitect
                 catch { }
             }
 
-            // 3) 10x Arastirma Puan Carpani
             if (ModSettings.TestMode10xResearch)
             {
                 _turboTimer += Time.unscaledDeltaTime;
@@ -724,7 +742,6 @@ namespace UniverseArchitect
                 }
             }
 
-            // 4) Arastirilan 5 motor ozelliginin engineParts listesine senkronizasyonu
             if (EngineFeaturesInjected)
             {
                 _companySyncTimer += Time.unscaledDeltaTime;
@@ -1072,7 +1089,7 @@ namespace UniverseArchitect
                     activeBonusNotes.Add($"Resmi Mod Desteği (+%4 Skor, +8 Hype, +{bonusFans:F0} Hayran)");
                 }
 
-                // D) FAZ 2: ANA EVREN / YAN EVREN / ALTERNATIF ZAMAN MEKANIKLERI
+                // D) FAZ 2: ANA EVREN / YAN EVREN / ALTERNATIF ZAMAN / EVREN DISI
                 int integrity = UniverseSaveManager.Current.CanonIntegrity;
                 if (category == ProjectCategory.MainUniverse)
                 {
@@ -1094,7 +1111,6 @@ namespace UniverseArchitect
                         activeBonusNotes.Add($"Ana Evren Çatlağı! [Tutarlılık {integrity}/100] (-%4 Skor)");
                     }
 
-                    // Ana Evren devam oyunu bonusu
                     if (!string.IsNullOrEmpty(game.sequelTo))
                     {
                         totalScoreMult *= 1.03;
@@ -1111,6 +1127,10 @@ namespace UniverseArchitect
                     totalModHype += 10;
                     activeBonusNotes.Add("Alternatif Zaman (+10 Hype, Tutarlılık korundu)");
                 }
+                else
+                {
+                    activeBonusNotes.Add("Evren Dışı (Bağımsız proje, Tutarlılık etkilenmedi)");
+                }
 
                 // E) Global Denge Tavanlariyla Skor & Hype Uygula
                 if (totalScoreMult != 1.0)
@@ -1124,7 +1144,7 @@ namespace UniverseArchitect
                     company.adjustHype(cappedHype);
                 }
 
-                // F) Ana Evren Tutarlilik Guncellemesi (Oyun puanina gore)
+                // F) Ana Evren Tutarlilik Guncellemesi
                 if (category == ProjectCategory.MainUniverse)
                 {
                     if (game.score >= 7.5)
