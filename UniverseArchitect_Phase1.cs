@@ -8,7 +8,7 @@ using HarmonyLib;
 using UnityEngine;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.1.0", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.1.1", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
