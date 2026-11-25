@@ -8,7 +8,7 @@ using HarmonyLib;
 using UnityEngine;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.1.1", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.1.3", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
@@ -45,10 +45,6 @@ namespace UniverseArchitect
         public string Id;
         public string Name;
         public string Description;
-        public double ResearchCost;
-        public double EngineCost;
-        public double ResearchPoints;
-        public int EnginePoints;
     }
 
     public class ReleasedGameRecord
@@ -173,36 +169,31 @@ namespace UniverseArchitect
             {
                 Id = "njg_lore_link",
                 Name = "Evren Bağlantı Modülü",
-                Description = "Oyunları aynı kurgusal evrene ve kronolojiye bağlar.",
-                ResearchCost = 20000, EngineCost = 10000, ResearchPoints = 15, EnginePoints = 15
+                Description = "Oyunları aynı kurgusal evrene ve kronolojiye bağlar."
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_branching_narrative",
                 Name = "Dallanan Hikaye & Çoklu Son",
-                Description = "Oyuncu seçimlerine göre evreni şekillendiren dallanan anlatı.",
-                ResearchCost = 25000, EngineCost = 15000, ResearchPoints = 20, EnginePoints = 20
+                Description = "Oyuncu seçimlerine göre evreni şekillendiren dallanan anlatı."
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_soundtrack_rap",
                 Name = "Stüdyo İçi Soundtrack & Rap",
-                Description = "Özgün oyun müzikleri ve rap tanıtım parçalarıyla Hype patlaması.",
-                ResearchCost = 15000, EngineCost = 8000, ResearchPoints = 10, EnginePoints = 10
+                Description = "Özgün oyun müzikleri ve rap tanıtım parçalarıyla Hype patlaması."
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_post_credits",
                 Name = "Jenerik Sonrası Sahne",
-                Description = "Bir sonraki devam oyunu için gizli ipucu ve Hype aktarımı.",
-                ResearchCost = 18000, EngineCost = 10000, ResearchPoints = 12, EnginePoints = 12
+                Description = "Bir sonraki devam oyunu için gizli ipucu ve Hype aktarımı."
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_mod_support",
                 Name = "Resmi Mod Desteği",
-                Description = "Topluluk modlarıyla oyunun satış ömrünü ve sadakatini uzatır.",
-                ResearchCost = 30000, EngineCost = 20000, ResearchPoints = 20, EnginePoints = 20
+                Description = "Topluluk modlarıyla oyunun satış ömrünü ve sadakatini uzatır."
             }
         };
 
@@ -314,20 +305,22 @@ namespace UniverseArchitect
     {
         public static ProjectCategory ActiveProjectCategory = ProjectCategory.UH;
         public static bool TopicsInjected = false;
-        public static bool TopicIconsInjected = false;
         public static bool EngineFeaturesInjected = false;
         private float _injectTimer = 0f;
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect v1.1.0 (Renkli Ikonlar + Kancasiz 5 Motor + Gercek Bildirim) baslatiliyor...");
+            LoggerInstance.Msg("Universe Architect v1.1.3 (Offline Kilit + 6 Konu + 5 Motor TryCast + JSON) baslatiliyor...");
             UniverseSaveManager.Load();
 
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v110");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v113");
                 harmony.PatchAll();
-                LoggerInstance.Msg("[Universe Architect] Tum v1.1.0 yamalari basariyla uygulandi!");
+
+                int patchedCount = 0;
+                foreach (var _ in harmony.GetPatchedMethods()) patchedCount++;
+                LoggerInstance.Msg($"[Universe Architect] Tum v1.1.3 yamalari uygulandi! (Yamalanan metot sayisi: {patchedCount})");
             }
             catch (Exception ex)
             {
@@ -337,7 +330,7 @@ namespace UniverseArchitect
 
         public override void OnUpdate()
         {
-            if (TopicsInjected && TopicIconsInjected && EngineFeaturesInjected) return;
+            if (TopicsInjected && EngineFeaturesInjected) return;
 
             _injectTimer += Time.unscaledDeltaTime;
             if (_injectTimer < 2.0f) return;
@@ -345,9 +338,6 @@ namespace UniverseArchitect
 
             if (!TopicsInjected)
                 TopicInjectorHelper.TryInjectTopics();
-
-            if (TopicsInjected && !TopicIconsInjected)
-                TopicIconInjectorHelper.TryInjectIcons();
 
             if (!EngineFeaturesInjected)
                 EngineFeatureInjectorHelper.TryInjectFromScriptableObject();
@@ -424,148 +414,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 6. KONU IKONLARI ENJEKSIYONU (GameConfig.nameToSpriteMap - BEYAZ KARE COZUMU)
-    // =========================================================================
-public static class TopicIconInjectorHelper
-    {
-        public static void TryInjectIcons()
-        {
-            if (UniverseArchitectMod.TopicIconsInjected) return;
-
-            try
-            {
-                object gameConfig = FindGameConfigInstance();
-                if (gameConfig == null) return;
-
-                var gcType = gameConfig.GetType();
-                var mapMember = (MemberInfo)AccessTools.Property(gcType, "nameToSpriteMap")
-                             ?? AccessTools.Field(gcType, "nameToSpriteMap");
-
-                Il2CppSystem.Collections.Generic.Dictionary<string, Sprite> spriteMap = null;
-                if (mapMember is PropertyInfo pi)
-                    spriteMap = pi.GetValue(gameConfig) as Il2CppSystem.Collections.Generic.Dictionary<string, Sprite>;
-                else if (mapMember is FieldInfo fi)
-                    spriteMap = fi.GetValue(gameConfig) as Il2CppSystem.Collections.Generic.Dictionary<string, Sprite>;
-
-                if (spriteMap == null || spriteMap.Count == 0) return;
-
-                // Vanilya "Sports" veya "Pirate" anahtarindan gercek onek/sonek formatini tespit et
-                string detectedPrefix = "";
-                string detectedSuffix = "";
-                bool patternFound = false;
-                var sampleKeys = new List<string>();
-
-                var enumerator = spriteMap.GetEnumerator();
-                while (enumerator.MoveNext())
-                {
-                    string key = enumerator.Current.Key;
-                    if (sampleKeys.Count < 8) sampleKeys.Add(key);
-
-                    if (!patternFound && !string.IsNullOrEmpty(key))
-                    {
-                        int idx = key.IndexOf("Pirate", StringComparison.OrdinalIgnoreCase);
-                        if (idx >= 0)
-                        {
-                            detectedPrefix = key.Substring(0, idx);
-                            detectedSuffix = key.Substring(idx + "Pirate".Length);
-                            patternFound = true;
-                        }
-                        else
-                        {
-                            idx = key.IndexOf("Sports", StringComparison.OrdinalIgnoreCase);
-                            if (idx >= 0)
-                            {
-                                detectedPrefix = key.Substring(0, idx);
-                                detectedSuffix = key.Substring(idx + "Sports".Length);
-                                patternFound = true;
-                            }
-                        }
-                    }
-                }
-
-                MelonLogger.Msg($"[NJG-Debug] GameConfig.nameToSpriteMap bulundu! ({spriteMap.Count} sprite) Ornek anahtarlar: {string.Join(", ", sampleKeys)}");
-                MelonLogger.Msg($"[NJG-Debug] Tespit edilen konu ikon formati -> Onek: '{detectedPrefix}', Sonek: '{detectedSuffix}'");
-
-                var getTopicSpriteMethod = AccessTools.Method(gcType, "GetTopicIconSprite", new[] { typeof(string) });
-                int injectedCount = 0;
-
-                foreach (var def in Phase1Database.Topics)
-                {
-                    Sprite borrowed = null;
-
-                    // 1) Oyunun kendi GetTopicIconSprite(keyword) metoduyla ikon al
-                    if (getTopicSpriteMethod != null)
-                    {
-                        try { borrowed = getTopicSpriteMethod.Invoke(gameConfig, new object[] { def.IconTemplateKeyword }) as Sprite; }
-                        catch { }
-                    }
-
-                    // 2) Bulunamazsa sozlukten anahtar parcasiyla ara
-                    if (borrowed == null)
-                    {
-                        var en = spriteMap.GetEnumerator();
-                        while (en.MoveNext())
-                        {
-                            if (!string.IsNullOrEmpty(en.Current.Key) &&
-                                en.Current.Key.IndexOf(def.IconTemplateKeyword, StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                borrowed = en.Current.Value;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (borrowed == null) continue;
-
-                    // Hem tam tespit edilen formatta hem de ham ID olarak kaydet (garanti)
-                    string formattedKey = detectedPrefix + def.Id + detectedSuffix;
-                    spriteMap[formattedKey] = borrowed;
-                    if (formattedKey != def.Id)
-                        spriteMap[def.Id] = borrowed;
-
-                    injectedCount++;
-                }
-
-                MelonLogger.Msg($"[Universe Architect] {injectedCount} yeni konuya renkli ikon atandi!");
-                UniverseArchitectMod.TopicIconsInjected = true;
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Error($"[Universe Architect] Ikon enjeksiyon hatasi: {ex.Message}");
-                UniverseArchitectMod.TopicIconsInjected = true;
-            }
-        }
-
-        private static object FindGameConfigInstance()
-        {
-            var scriptables = UnityEngine.Resources.FindObjectsOfTypeAll<ScriptableObject>();
-            if (scriptables != null)
-            {
-                for (int i = 0; i < scriptables.Length; i++)
-                {
-                    var so = scriptables[i];
-                    if (so != null && so.GetType().Name.Equals("GameConfig", StringComparison.OrdinalIgnoreCase))
-                        return so;
-                }
-            }
-
-            var behaviours = UnityEngine.Resources.FindObjectsOfTypeAll<MonoBehaviour>();
-            if (behaviours != null)
-            {
-                for (int i = 0; i < behaviours.Length; i++)
-                {
-                    var mb = behaviours[i];
-                    if (mb != null && mb.GetType().Name.Equals("GameConfig", StringComparison.OrdinalIgnoreCase))
-                        return mb;
-                }
-            }
-
-            return null;
-        }
-    }
-
-        // =========================================================================
-    // 7. MOTOR / AR-GE ENJEKSIYONU (SIFIR NULLABLE - NATIVE KLONLAMA v1.1.2)
+    // 6. MOTOR / AR-GE ENJEKSIYONU (SIFIR NULLABLE + TryCast v1.1.3)
     // =========================================================================
     public static class EngineFeatureInjectorHelper
     {
@@ -582,7 +431,6 @@ public static class TopicIconInjectorHelper
                 var research = researchAssets[0];
                 if (research == null) return;
 
-                // Logo ekraninda acele etme: allItems dolana kadar bekle
                 var allItems = research.getAllItems();
                 var engineItems = research.engineItems;
                 if (allItems == null || allItems.Count == 0)
@@ -610,8 +458,9 @@ public static class TopicIconInjectorHelper
                     if (ContainsId(allItems, feat.Id))
                         continue;
 
-                    // Nullable<T> alanlarina hic dokunmadan native IL2CPP kopyasi olustur
-                    var item = cloneMethod.Invoke(template, null) as ResearchItem;
+                    // IL2CPP MemberwiseClone sonucunu TryCast ile guvenle ResearchItem'a cevir
+                    var rawClone = cloneMethod.Invoke(template, null) as Il2CppSystem.Object;
+                    var item = rawClone != null ? rawClone.TryCast<ResearchItem>() : null;
                     if (item == null) continue;
 
                     item.id = feat.Id;
@@ -643,6 +492,107 @@ public static class TopicIconInjectorHelper
             {
                 if (list[i] != null && list[i].id == id) return true;
             }
+            return false;
+        }
+    }
+
+    // =========================================================================
+    // 7. INCELEME PASIF BONUSLARI & CIFTE BONUS KILIDI & JSON KAYIT
+    // =========================================================================
+    [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
+    public static class Patch_ReviewGame
+    {
+        private static readonly HashSet<IntPtr> _processedGames = new HashSet<IntPtr>();
+
+        static void Postfix(Company company)
+        {
+            try
+            {
+                if (company == null || company.currentGame == null) return;
+
+                var game = company.currentGame;
+                if (game.Pointer != IntPtr.Zero && !_processedGames.Add(game.Pointer))
+                    return;
+
+                string title = !string.IsNullOrEmpty(game.title) ? game.title : "Yeni Oyun";
+                string topicId = game.topic != null ? game.topic.id : null;
+
+                var customTopic = Phase1Database.FindTopicById(topicId);
+                if (customTopic != null)
+                {
+                    if (customTopic.ScoreBonusMultiplier > 1.0)
+                    {
+                        game.score = Math.Min(10.0, game.score * customTopic.ScoreBonusMultiplier);
+                    }
+                    if (customTopic.BonusHype > 0)
+                    {
+                        int cappedHype = UniverseArchitectMod.ApplyCappedModHype(customTopic.BonusHype);
+                        company.adjustHype(cappedHype);
+                    }
+
+                    NotificationHelper.Show(
+                        company,
+                        $"Konu Bonusu: {customTopic.Name}",
+                        $"{title} için özel bonus devreye girdi: {customTopic.BonusLabel}"
+                    );
+                }
+
+                if (UniverseArchitectMod.ActiveProjectCategory == ProjectCategory.UD)
+                {
+                    game.score = Math.Min(10.0, game.score * 1.05);
+                }
+
+                UniverseSaveManager.RecordReleasedGame(game, topicId, game.score, UniverseArchitectMod.ActiveProjectCategory);
+                MelonLogger.Msg($"[Universe Architect] Oyun kaydedildi (tekil): '{title}' (Konu: {topicId ?? "standart"}, Skor: {game.score:F2})");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[Universe Architect] ReviewGame hatasi: {ex.Message}");
+            }
+        }
+    }
+
+    // =========================================================================
+    // 8. GOOGLE PLAY GAMES OFFLINE YAMALARI (GUVENLIK KILIDI)
+    // =========================================================================
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), "InitPlayGamesPlatform")]
+    public static class Patch_BlockInitPlayGames
+    {
+        static bool Prefix()
+        {
+            MelonLogger.Msg("[Universe Architect] InitPlayGamesPlatform durduruldu.");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), nameof(SocialManagerSocialImpl.Authenticate))]
+    public static class Patch_BlockSocialAuthenticate
+    {
+        static bool Prefix(Il2CppSystem.Action<bool, string> action)
+        {
+            MelonLogger.Msg("[Universe Architect] SocialManager.Authenticate durduruldu -> success=false.");
+            action?.Invoke(false, "Offline mod");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(GameController), nameof(GameController.AuthenticateSocialManager))]
+    public static class Patch_BlockGameControllerAuth
+    {
+        static bool Prefix(Il2CppSystem.Action<bool> callback, bool resetUserDeclinedFlag)
+        {
+            MelonLogger.Msg("[Universe Architect] AuthenticateSocialManager durduruldu -> callback(false).");
+            callback?.Invoke(false);
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(SocialManagerSocialImpl), "get_IsAuthenticated")]
+    public static class Patch_ForceOfflineAuthState
+    {
+        static bool Prefix(ref bool __result)
+        {
+            __result = false;
             return false;
         }
     }
