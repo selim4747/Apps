@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using MelonLoader;
 using HarmonyLib;
 using UnityEngine;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.0.4", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.0.5", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
@@ -359,19 +360,19 @@ namespace UniverseArchitect
     {
         public static ProjectCategory ActiveProjectCategory = ProjectCategory.UH;
         public static bool TopicsInjected = false;
-        public static bool LoggedResearchOnce = false;
+        public static bool EngineFeaturesInjected = false;
         private float _injectTimer = 0f;
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect v1.0.4 (ARM64 Guvenli: Konular + Motorlar + Bonuslar + JSON) baslatiliyor...");
+            LoggerInstance.Msg("Universe Architect v1.0.5 (Kancasiz Motor + Konular + Bonuslar + JSON) baslatiliyor...");
             UniverseSaveManager.Load();
 
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v104");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v105");
                 harmony.PatchAll();
-                LoggerInstance.Msg("[Universe Architect] Tum v1.0.4 yamalari basariyla uygulandi!");
+                LoggerInstance.Msg("[Universe Architect] Tum v1.0.5 yamalari basariyla uygulandi!");
             }
             catch (Exception ex)
             {
@@ -381,13 +382,17 @@ namespace UniverseArchitect
 
         public override void OnUpdate()
         {
-            if (TopicsInjected) return;
+            if (TopicsInjected && EngineFeaturesInjected) return;
 
             _injectTimer += Time.unscaledDeltaTime;
             if (_injectTimer < 2.0f) return;
             _injectTimer = 0f;
 
-            TopicInjectorHelper.TryInjectTopics();
+            if (!TopicsInjected)
+                TopicInjectorHelper.TryInjectTopics();
+
+            if (TopicsInjected && !EngineFeaturesInjected)
+                EngineFeatureInjectorHelper.TryInjectWithoutHarmony();
         }
 
         public static int ApplyCappedModHype(int rawModHype)
@@ -397,7 +402,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 5. KONU ENJEKSIYONU
+    // 5. KONU ENJEKSIYONU (KANCASIZ)
     // =========================================================================
     public static class TopicInjectorHelper
     {
@@ -461,10 +466,9 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 6. MOTOR / AR-GE OZELLIKLERI (REF OLMADAN GUVENLI POSTFIX)
+    // 6. MOTOR / AR-GE ENJEKSIYONU (HARMONY KANCASIZ - ARM64 GUVENLI)
     // =========================================================================
-    [HarmonyPatch(typeof(Research), nameof(Research.getAllItems))]
-    public static class Patch_InjectEngineFeatures
+public static class EngineFeatureInjectorHelper
     {
         private static readonly string[] SafeTemplateProps =
         {
@@ -478,34 +482,103 @@ namespace UniverseArchitect
             "isTraining"
         };
 
-        // DIKKAT: ARM64 IL2CPP cokmesini onlemek icin 'ref' kaldirildi!
-        static void Postfix(Il2CppSystem.Collections.Generic.List<ResearchItem> __result)
+        public static void TryInjectWithoutHarmony()
         {
+            if (UniverseArchitectMod.EngineFeaturesInjected) return;
+
             try
             {
-                if (__result == null || __result.Count == 0) return;
+                var researchType = typeof(Research);
+                var targetLists = new List<(string Name, Il2CppSystem.Collections.Generic.List<ResearchItem> List)>();
 
-                ResearchItem template = null;
-                for (int i = 0; i < __result.Count; i++)
+                // 1) Research sinifindaki statik List<ResearchItem> ozelliklerini tara
+                foreach (var prop in researchType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                 {
-                    var candidate = __result[i];
-                    if (candidate != null &&
-                        !string.IsNullOrEmpty(candidate.category) &&
-                        candidate.category.Equals("Engine", StringComparison.OrdinalIgnoreCase))
+                    if (!prop.CanRead) continue;
+                    try
                     {
-                        template = candidate;
+                        if (prop.GetValue(null) is Il2CppSystem.Collections.Generic.List<ResearchItem> list && list.Count > 0)
+                        {
+                            targetLists.Add((prop.Name, list));
+                        }
+                    }
+                    catch { }
+                }
+
+                // 2) Statik alanlari (fields) tara
+                foreach (var field in researchType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                {
+                    try
+                    {
+                        if (field.GetValue(null) is Il2CppSystem.Collections.Generic.List<ResearchItem> list && list.Count > 0)
+                        {
+                            targetLists.Add((field.Name, list));
+                        }
+                    }
+                    catch { }
+                }
+
+                // 3) Statik liste bulunamadiysa getAllItems() statikse dogrudan cagir
+                if (targetLists.Count == 0)
+                {
+                    var getAllMethod = AccessTools.Method(researchType, "getAllItems");
+                    if (getAllMethod != null && getAllMethod.IsStatic && getAllMethod.GetParameters().Length == 0)
+                    {
+                        if (getAllMethod.Invoke(null, null) is Il2CppSystem.Collections.Generic.List<ResearchItem> list && list.Count > 0)
+                        {
+                            targetLists.Add(("getAllItems()", list));
+                        }
+                    }
+                }
+
+                if (targetLists.Count == 0)
+                {
+                    MelonLogger.Warning("[NJG-Debug] Research uzerinde statik List<ResearchItem> bulunamadi (bir sonraki deneme bekleniyor).");
+                    UniverseArchitectMod.EngineFeaturesInjected = true;
+                    return;
+                }
+
+                // Engine kategorisindeki sablon ogeyi bul
+                ResearchItem template = null;
+                foreach (var entry in targetLists)
+                {
+                    MelonLogger.Msg($"[NJG-Debug] Research listesi bulundu: {entry.Name} (Eleman: {entry.List.Count})");
+                    if (template == null)
+                    {
+                        for (int i = 0; i < entry.List.Count; i++)
+                        {
+                            var c = entry.List[i];
+                            if (c != null && !string.IsNullOrEmpty(c.category) &&
+                                c.category.Equals("Engine", StringComparison.OrdinalIgnoreCase))
+                            {
+                                template = c;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (template == null) template = targetLists[0].List[0];
+
+                // En uygun listeye (Engine veya All) ekle
+                var primaryList = targetLists[0];
+                foreach (var entry in targetLists)
+                {
+                    if (entry.Name.IndexOf("Engine", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        entry.Name.IndexOf("All", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        primaryList = entry;
                         break;
                     }
                 }
-                if (template == null) template = __result[0];
 
                 int addedCount = 0;
                 foreach (var feat in Phase1Database.EngineFeatures)
                 {
                     bool exists = false;
-                    for (int i = 0; i < __result.Count; i++)
+                    for (int i = 0; i < primaryList.List.Count; i++)
                     {
-                        if (__result[i] != null && __result[i].id == feat.Id)
+                        if (primaryList.List[i] != null && primaryList.List[i].id == feat.Id)
                         {
                             exists = true;
                             break;
@@ -517,7 +590,7 @@ namespace UniverseArchitect
                     foreach (var propName in SafeTemplateProps)
                     {
                         CopyPropertyIfExists(template, item, propName);
-            }
+                    }
 
                     item.id = feat.Id;
                     item.category = template.category ?? "Engine";
@@ -527,19 +600,17 @@ namespace UniverseArchitect
                     item.pointsCost = new Il2CppSystem.Nullable<double>(feat.ResearchPoints);
                     item.enginePoints = new Il2CppSystem.Nullable<int>(feat.EnginePoints);
 
-                    __result.Add(item);
+                    primaryList.List.Add(item);
                     addedCount++;
                 }
 
-                if (!UniverseArchitectMod.LoggedResearchOnce && addedCount > 0)
-                {
-                    MelonLogger.Msg($"[Universe Architect] {addedCount} motor ozelligi eklendi! (Sablon: {template.id} / {template.category})");
-                    UniverseArchitectMod.LoggedResearchOnce = true;
-                }
+                MelonLogger.Msg($"[Universe Architect] {addedCount} motor ozelligi '{primaryList.Name}' listesine kancasiz eklendi! (Sablon: {template.id})");
+                UniverseArchitectMod.EngineFeaturesInjected = true;
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"[Universe Architect] Motor ozelligi enjeksiyon hatasi: {ex}");
+                MelonLogger.Error($"[Universe Architect] Kancasiz motor enjeksiyon hatasi: {ex}");
+                UniverseArchitectMod.EngineFeaturesInjected = true;
             }
         }
 
