@@ -8,7 +8,7 @@ using HarmonyLib;
 using UnityEngine;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.0.5", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.1.0", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
@@ -32,6 +32,7 @@ namespace UniverseArchitect
     {
         public string Id;
         public string Name;
+        public string IconTemplateKeyword;
         public Dictionary<string, double> GenreWeights;
         public double[] AudienceWeights; // [0] = Young, [1] = Everyone, [2] = Mature
         public double ScoreBonusMultiplier;
@@ -43,6 +44,7 @@ namespace UniverseArchitect
     {
         public string Id;
         public string Name;
+        public string Description;
         public double ResearchCost;
         public double EngineCost;
         public double ResearchPoints;
@@ -51,8 +53,12 @@ namespace UniverseArchitect
 
     public class ReleasedGameRecord
     {
+        public string GameId { get; set; }
         public string Title { get; set; }
         public string TopicId { get; set; }
+        public string GameSize { get; set; }
+        public string SequelTo { get; set; }
+        public int ReleaseWeek { get; set; }
         public double FinalScore { get; set; }
         public string Category { get; set; }
         public string RecordedAtUtc { get; set; }
@@ -73,6 +79,7 @@ namespace UniverseArchitect
             {
                 Id = "njg_library_defense",
                 Name = "Kütüphane & Gece Savunması",
+                IconTemplateKeyword = "Horror",
                 GenreWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "Action", 1.0 }, { "Adventure", 0.8 }, { "RPG", 0.8 },
@@ -87,6 +94,7 @@ namespace UniverseArchitect
             {
                 Id = "njg_5d_shift",
                 Name = "5D Boyut Kayması",
+                IconTemplateKeyword = "Sci-Fi",
                 GenreWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "Action", 0.7 }, { "Adventure", 1.0 }, { "RPG", 0.8 },
@@ -101,6 +109,7 @@ namespace UniverseArchitect
             {
                 Id = "njg_planet_idle",
                 Name = "Gezegen Kolonizasyonu (Idle)",
+                IconTemplateKeyword = "Space",
                 GenreWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "Action", 0.6 }, { "Adventure", 0.7 }, { "RPG", 0.7 },
@@ -115,6 +124,7 @@ namespace UniverseArchitect
             {
                 Id = "njg_morph_animals",
                 Name = "Şekil Değiştiren Hayvanlar",
+                IconTemplateKeyword = "Fantasy",
                 GenreWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "Action", 1.0 }, { "Adventure", 1.0 }, { "RPG", 1.0 },
@@ -129,6 +139,7 @@ namespace UniverseArchitect
             {
                 Id = "njg_star_run",
                 Name = "Yıldız Koşusu",
+                IconTemplateKeyword = "Racing",
                 GenreWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "Action", 1.0 }, { "Adventure", 1.0 }, { "RPG", 0.8 },
@@ -143,6 +154,7 @@ namespace UniverseArchitect
             {
                 Id = "njg_sailor_adventure",
                 Name = "Denizci Macerası",
+                IconTemplateKeyword = "Pirate",
                 GenreWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "Action", 0.8 }, { "Adventure", 1.0 }, { "RPG", 1.0 },
@@ -161,30 +173,35 @@ namespace UniverseArchitect
             {
                 Id = "njg_lore_link",
                 Name = "Evren Bağlantı Modülü",
+                Description = "Oyunları aynı kurgusal evrene ve kronolojiye bağlar.",
                 ResearchCost = 20000, EngineCost = 10000, ResearchPoints = 15, EnginePoints = 15
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_branching_narrative",
                 Name = "Dallanan Hikaye & Çoklu Son",
+                Description = "Oyuncu seçimlerine göre evreni şekillendiren dallanan anlatı.",
                 ResearchCost = 25000, EngineCost = 15000, ResearchPoints = 20, EnginePoints = 20
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_soundtrack_rap",
                 Name = "Stüdyo İçi Soundtrack & Rap",
+                Description = "Özgün oyun müzikleri ve rap tanıtım parçalarıyla Hype patlaması.",
                 ResearchCost = 15000, EngineCost = 8000, ResearchPoints = 10, EnginePoints = 10
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_post_credits",
                 Name = "Jenerik Sonrası Sahne",
+                Description = "Bir sonraki devam oyunu için gizli ipucu ve Hype aktarımı.",
                 ResearchCost = 18000, EngineCost = 10000, ResearchPoints = 12, EnginePoints = 12
             },
             new CustomEngineFeatureDef
             {
                 Id = "njg_mod_support",
                 Name = "Resmi Mod Desteği",
+                Description = "Topluluk modlarıyla oyunun satış ömrünü ve sadakatini uzatır.",
                 ResearchCost = 30000, EngineCost = 20000, ResearchPoints = 20, EnginePoints = 20
             }
         };
@@ -202,7 +219,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 2. JSON EVREN KAYIT SISTEMI
+    // 2. JSON EVREN KAYIT SISTEMI (FAZ 2 HAZIR)
     // =========================================================================
     public static class UniverseSaveManager
     {
@@ -247,12 +264,16 @@ namespace UniverseArchitect
             }
         }
 
-        public static void RecordReleasedGame(string title, string topicId, double score, ProjectCategory category)
+        public static void RecordReleasedGame(Game game, string topicId, double score, ProjectCategory category)
         {
             Current.ReleasedGames.Add(new ReleasedGameRecord
             {
-                Title = string.IsNullOrEmpty(title) ? "Adsiz Oyun" : title,
+                GameId = game != null ? (game.id ?? "") : "",
+                Title = game != null && !string.IsNullOrEmpty(game.title) ? game.title : "Adsiz Oyun",
                 TopicId = string.IsNullOrEmpty(topicId) ? "unknown" : topicId,
+                GameSize = game != null ? (game.gameSize ?? "small") : "small",
+                SequelTo = game != null ? (game.sequelTo ?? "") : "",
+                ReleaseWeek = game != null ? game.releaseWeek : 0,
                 FinalScore = Math.Round(score, 2),
                 Category = category.ToString(),
                 RecordedAtUtc = DateTime.UtcNow.ToString("o")
@@ -262,93 +283,26 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 3. BILDIRIM & GUVENLI REFLECTION YARDIMCILARI
+    // 3. GERCEK OYUN ICI BILDIRIM YARDIMCISI
     // =========================================================================
     public static class NotificationHelper
     {
-        public static void TryShow(Company company, string header, string text)
+        public static void Show(Company company, string header, string text)
         {
             MelonLogger.Msg($"[Universe Architect Bildirim] {header}: {text}");
             if (company == null) return;
 
             try
             {
-                var notifType = AccessTools.TypeByName("Il2CppRarebyte.GDT.Notification");
-                if (notifType == null) return;
-
-                object notifObj = null;
-                var ctor2 = AccessTools.Constructor(notifType, new[] { typeof(string), typeof(string) });
-                if (ctor2 != null)
+                var notif = new Notification(header, text);
+                if (company.notifications != null)
                 {
-                    notifObj = ctor2.Invoke(new object[] { header, text });
-                }
-                else
-                {
-                    var ctor0 = AccessTools.Constructor(notifType, Type.EmptyTypes);
-                    if (ctor0 != null)
-                    {
-                        notifObj = ctor0.Invoke(null);
-                        SafeReflection.SetMember(notifObj, "header", header);
-                        SafeReflection.SetMember(notifObj, "text", text);
-                    }
-                }
-
-                if (notifObj == null) return;
-
-                var listObj = SafeReflection.GetObjectMember(company, "notifications");
-                if (listObj != null)
-                {
-                    var addMethod = AccessTools.Method(listObj.GetType(), "Add");
-                    addMethod?.Invoke(listObj, new[] { notifObj });
+                    company.notifications.Add(notif);
                 }
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning($"[Universe Architect] Bildirim atlandi: {ex.Message}");
-            }
-        }
-    }
-
-    public static class SafeReflection
-    {
-        public static object GetObjectMember(object target, params string[] names)
-        {
-            if (target == null) return null;
-            var t = target.GetType();
-            foreach (var name in names)
-            {
-                var prop = AccessTools.Property(t, name);
-                if (prop != null && prop.CanRead)
-                {
-                    try { return prop.GetValue(target); } catch { }
-                }
-                var field = AccessTools.Field(t, name);
-                if (field != null)
-                {
-                    try { return field.GetValue(target); } catch { }
-                }
-            }
-            return null;
-        }
-
-        public static string GetStringMember(object target, params string[] names)
-        {
-            return GetObjectMember(target, names) as string;
-        }
-
-        public static void SetMember(object target, string name, object value)
-        {
-            if (target == null) return;
-            var t = target.GetType();
-            var prop = AccessTools.Property(t, name);
-            if (prop != null && prop.CanWrite)
-            {
-                try { prop.SetValue(target, value); return; } catch { }
-            }
-            var field = AccessTools.Field(t, name);
-            if (field != null)
-            {
-                try { field.SetValue(target, value); } catch { }
+                MelonLogger.Warning($"[Universe Architect] Oyun ici bildirim eklenemedi: {ex.Message}");
             }
         }
     }
@@ -360,19 +314,20 @@ namespace UniverseArchitect
     {
         public static ProjectCategory ActiveProjectCategory = ProjectCategory.UH;
         public static bool TopicsInjected = false;
+        public static bool TopicIconsInjected = false;
         public static bool EngineFeaturesInjected = false;
         private float _injectTimer = 0f;
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect v1.0.5 (Kancasiz Motor + Konular + Bonuslar + JSON) baslatiliyor...");
+            LoggerInstance.Msg("Universe Architect v1.1.0 (Renkli Ikonlar + Kancasiz 5 Motor + Gercek Bildirim) baslatiliyor...");
             UniverseSaveManager.Load();
 
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v105");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v110");
                 harmony.PatchAll();
-                LoggerInstance.Msg("[Universe Architect] Tum v1.0.5 yamalari basariyla uygulandi!");
+                LoggerInstance.Msg("[Universe Architect] Tum v1.1.0 yamalari basariyla uygulandi!");
             }
             catch (Exception ex)
             {
@@ -382,7 +337,7 @@ namespace UniverseArchitect
 
         public override void OnUpdate()
         {
-            if (TopicsInjected && EngineFeaturesInjected) return;
+            if (TopicsInjected && TopicIconsInjected && EngineFeaturesInjected) return;
 
             _injectTimer += Time.unscaledDeltaTime;
             if (_injectTimer < 2.0f) return;
@@ -391,8 +346,11 @@ namespace UniverseArchitect
             if (!TopicsInjected)
                 TopicInjectorHelper.TryInjectTopics();
 
-            if (TopicsInjected && !EngineFeaturesInjected)
-                EngineFeatureInjectorHelper.TryInjectWithoutHarmony();
+            if (TopicsInjected && !TopicIconsInjected)
+                TopicIconInjectorHelper.TryInjectIcons();
+
+            if (!EngineFeaturesInjected)
+                EngineFeatureInjectorHelper.TryInjectFromScriptableObject();
         }
 
         public static int ApplyCappedModHype(int rawModHype)
@@ -421,7 +379,7 @@ namespace UniverseArchitect
                     return;
 
                 var templateTopic = topicsAsset.topics[0];
-                MelonLogger.Msg($"[NJG-Debug] Topics bulundu! Mevcut: {topicsAsset.topics.Count}, Sablon: {templateTopic.id}");
+                MelonLogger.Msg($"[NJG-Debug] Topics bulundu! Mevcut: {topicsAsset.topics.Count}");
 
                 foreach (var def in Phase1Database.Topics)
                 {
@@ -466,145 +424,236 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 6. MOTOR / AR-GE ENJEKSIYONU (HARMONY KANCASIZ - ARM64 GUVENLI)
+    // 6. KONU IKONLARI ENJEKSIYONU (GameConfig.nameToSpriteMap - BEYAZ KARE COZUMU)
     // =========================================================================
-public static class EngineFeatureInjectorHelper
+public static class TopicIconInjectorHelper
     {
-        private static readonly string[] SafeTemplateProps =
+        public static void TryInjectIcons()
         {
-            "categoryDisplayName",
-            "v",
-            "techLevel",
-            "canResearch",
-            "canUse",
-            "group",
-            "complete",
-            "isTraining"
-        };
-
-        public static void TryInjectWithoutHarmony()
-        {
-            if (UniverseArchitectMod.EngineFeaturesInjected) return;
+            if (UniverseArchitectMod.TopicIconsInjected) return;
 
             try
             {
-                var researchType = typeof(Research);
-                var targetLists = new List<(string Name, Il2CppSystem.Collections.Generic.List<ResearchItem> List)>();
+                object gameConfig = FindGameConfigInstance();
+                if (gameConfig == null) return;
 
-                // 1) Research sinifindaki statik List<ResearchItem> ozelliklerini tara
-                foreach (var prop in researchType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                var gcType = gameConfig.GetType();
+                var mapMember = (MemberInfo)AccessTools.Property(gcType, "nameToSpriteMap")
+                             ?? AccessTools.Field(gcType, "nameToSpriteMap");
+
+                Il2CppSystem.Collections.Generic.Dictionary<string, Sprite> spriteMap = null;
+                if (mapMember is PropertyInfo pi)
+                    spriteMap = pi.GetValue(gameConfig) as Il2CppSystem.Collections.Generic.Dictionary<string, Sprite>;
+                else if (mapMember is FieldInfo fi)
+                    spriteMap = fi.GetValue(gameConfig) as Il2CppSystem.Collections.Generic.Dictionary<string, Sprite>;
+
+                if (spriteMap == null || spriteMap.Count == 0) return;
+
+                // Vanilya "Sports" veya "Pirate" anahtarindan gercek onek/sonek formatini tespit et
+                string detectedPrefix = "";
+                string detectedSuffix = "";
+                bool patternFound = false;
+                var sampleKeys = new List<string>();
+
+                var enumerator = spriteMap.GetEnumerator();
+                while (enumerator.MoveNext())
                 {
-                    if (!prop.CanRead) continue;
-                    try
+                    string key = enumerator.Current.Key;
+                    if (sampleKeys.Count < 8) sampleKeys.Add(key);
+
+                    if (!patternFound && !string.IsNullOrEmpty(key))
                     {
-                        if (prop.GetValue(null) is Il2CppSystem.Collections.Generic.List<ResearchItem> list && list.Count > 0)
+                        int idx = key.IndexOf("Pirate", StringComparison.OrdinalIgnoreCase);
+                        if (idx >= 0)
                         {
-                            targetLists.Add((prop.Name, list));
+                            detectedPrefix = key.Substring(0, idx);
+                            detectedSuffix = key.Substring(idx + "Pirate".Length);
+                            patternFound = true;
                         }
-                    }
-                    catch { }
-                }
-
-                // 2) Statik alanlari (fields) tara
-                foreach (var field in researchType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                {
-                    try
-                    {
-                        if (field.GetValue(null) is Il2CppSystem.Collections.Generic.List<ResearchItem> list && list.Count > 0)
+                        else
                         {
-                            targetLists.Add((field.Name, list));
-                        }
-                    }
-                    catch { }
-                }
-
-                // 3) Statik liste bulunamadiysa getAllItems() statikse dogrudan cagir
-                if (targetLists.Count == 0)
-                {
-                    var getAllMethod = AccessTools.Method(researchType, "getAllItems");
-                    if (getAllMethod != null && getAllMethod.IsStatic && getAllMethod.GetParameters().Length == 0)
-                    {
-                        if (getAllMethod.Invoke(null, null) is Il2CppSystem.Collections.Generic.List<ResearchItem> list && list.Count > 0)
-                        {
-                            targetLists.Add(("getAllItems()", list));
-                        }
-                    }
-                }
-
-                if (targetLists.Count == 0)
-                {
-                    MelonLogger.Warning("[NJG-Debug] Research uzerinde statik List<ResearchItem> bulunamadi (bir sonraki deneme bekleniyor).");
-                    UniverseArchitectMod.EngineFeaturesInjected = true;
-                    return;
-                }
-
-                // Engine kategorisindeki sablon ogeyi bul
-                ResearchItem template = null;
-                foreach (var entry in targetLists)
-                {
-                    MelonLogger.Msg($"[NJG-Debug] Research listesi bulundu: {entry.Name} (Eleman: {entry.List.Count})");
-                    if (template == null)
-                    {
-                        for (int i = 0; i < entry.List.Count; i++)
-                        {
-                            var c = entry.List[i];
-                            if (c != null && !string.IsNullOrEmpty(c.category) &&
-                                c.category.Equals("Engine", StringComparison.OrdinalIgnoreCase))
+                            idx = key.IndexOf("Sports", StringComparison.OrdinalIgnoreCase);
+                            if (idx >= 0)
                             {
-                                template = c;
-                                break;
+                                detectedPrefix = key.Substring(0, idx);
+                                detectedSuffix = key.Substring(idx + "Sports".Length);
+                                patternFound = true;
                             }
                         }
                     }
                 }
 
-                if (template == null) template = targetLists[0].List[0];
+                MelonLogger.Msg($"[NJG-Debug] GameConfig.nameToSpriteMap bulundu! ({spriteMap.Count} sprite) Ornek anahtarlar: {string.Join(", ", sampleKeys)}");
+                MelonLogger.Msg($"[NJG-Debug] Tespit edilen konu ikon formati -> Onek: '{detectedPrefix}', Sonek: '{detectedSuffix}'");
 
-                // En uygun listeye (Engine veya All) ekle
-                var primaryList = targetLists[0];
-                foreach (var entry in targetLists)
+                var getTopicSpriteMethod = AccessTools.Method(gcType, "GetTopicIconSprite", new[] { typeof(string) });
+                int injectedCount = 0;
+
+                foreach (var def in Phase1Database.Topics)
                 {
-                    if (entry.Name.IndexOf("Engine", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        entry.Name.IndexOf("All", StringComparison.OrdinalIgnoreCase) >= 0)
+                    Sprite borrowed = null;
+
+                    // 1) Oyunun kendi GetTopicIconSprite(keyword) metoduyla ikon al
+                    if (getTopicSpriteMethod != null)
                     {
-                        primaryList = entry;
-                        break;
+                        try { borrowed = getTopicSpriteMethod.Invoke(gameConfig, new object[] { def.IconTemplateKeyword }) as Sprite; }
+                        catch { }
                     }
+
+                    // 2) Bulunamazsa sozlukten anahtar parcasiyla ara
+                    if (borrowed == null)
+                    {
+                        var en = spriteMap.GetEnumerator();
+                        while (en.MoveNext())
+                        {
+                            if (!string.IsNullOrEmpty(en.Current.Key) &&
+                                en.Current.Key.IndexOf(def.IconTemplateKeyword, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                borrowed = en.Current.Value;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (borrowed == null) continue;
+
+                    // Hem tam tespit edilen formatta hem de ham ID olarak kaydet (garanti)
+                    string formattedKey = detectedPrefix + def.Id + detectedSuffix;
+                    spriteMap[formattedKey] = borrowed;
+                    if (formattedKey != def.Id)
+                        spriteMap[def.Id] = borrowed;
+
+                    injectedCount++;
                 }
+
+                MelonLogger.Msg($"[Universe Architect] {injectedCount} yeni konuya renkli ikon atandi!");
+                UniverseArchitectMod.TopicIconsInjected = true;
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"[Universe Architect] Ikon enjeksiyon hatasi: {ex.Message}");
+                UniverseArchitectMod.TopicIconsInjected = true;
+            }
+        }
+
+        private static object FindGameConfigInstance()
+        {
+            var scriptables = UnityEngine.Resources.FindObjectsOfTypeAll<ScriptableObject>();
+            if (scriptables != null)
+            {
+                for (int i = 0; i < scriptables.Length; i++)
+                {
+                    var so = scriptables[i];
+                    if (so != null && so.GetType().Name.Equals("GameConfig", StringComparison.OrdinalIgnoreCase))
+                        return so;
+                }
+            }
+
+            var behaviours = UnityEngine.Resources.FindObjectsOfTypeAll<MonoBehaviour>();
+            if (behaviours != null)
+            {
+                for (int i = 0; i < behaviours.Length; i++)
+                {
+                    var mb = behaviours[i];
+                    if (mb != null && mb.GetType().Name.Equals("GameConfig", StringComparison.OrdinalIgnoreCase))
+                        return mb;
+                }
+            }
+
+            return null;
+        }
+    }
+
+    // =========================================================================
+    // 7. MOTOR / AR-GE ENJEKSIYONU (KANCASIZ Research ScriptableObject)
+    // =========================================================================
+    public static class EngineFeatureInjectorHelper
+    {
+        public static void TryInjectFromScriptableObject()
+        {
+            if (UniverseArchitectMod.EngineFeaturesInjected) return;
+
+            try
+            {
+                var researchAssets = UnityEngine.Resources.FindObjectsOfTypeAll<Research>();
+                if (researchAssets == null || researchAssets.Length == 0)
+                    return;
+
+                var research = researchAssets[0];
+                if (research == null) return;
+
+                var allItems = research.getAllItems();
+                var engineItems = research.engineItems;
+
+                if ((allItems == null || allItems.Count == 0) && (engineItems == null || engineItems.Count == 0))
+                    return;
+
+                // En erken donemde acilan guvenli bir Engine ozelligini sablon sec
+                ResearchItem template = null;
+                if (engineItems != null && engineItems.Count > 0)
+                {
+                    template = engineItems[0];
+                }
+                else if (allItems != null)
+                {
+                    for (int i = 0; i < allItems.Count; i++)
+                    {
+                        var c = allItems[i];
+                        if (c != null && c.engineCost.HasValue)
+                        {
+                            template = c;
+                            break;
+                        }
+                    }
+                    if (template == null && allItems.Count > 0) template = allItems[0];
+                }
+
+                if (template == null) return;
+
+                MelonLogger.Msg($"[NJG-Debug] Research bulundu! allItems: {allItems?.Count ?? 0}, engineItems: {engineItems?.Count ?? 0}, Sablon: {template.id} (Kategori: {template.category}, TechLevel: {(template.techLevel.HasValue ? template.techLevel.Value.ToString() : "null")})");
 
                 int addedCount = 0;
                 foreach (var feat in Phase1Database.EngineFeatures)
                 {
-                    bool exists = false;
-                    for (int i = 0; i < primaryList.List.Count; i++)
-                    {
-                        if (primaryList.List[i] != null && primaryList.List[i].id == feat.Id)
-                        {
-                            exists = true;
-                            break;
-                        }
-                    }
-                    if (exists) continue;
+                    if (ContainsId(allItems, feat.Id) && ContainsId(engineItems, feat.Id))
+                        continue;
 
                     var item = new ResearchItem();
-                    foreach (var propName in SafeTemplateProps)
-                    {
-                        CopyPropertyIfExists(template, item, propName);
-                    }
-
                     item.id = feat.Id;
+                    item.name = feat.Name;
+                    item.description = feat.Description;
                     item.category = template.category ?? "Engine";
-                    SafeReflection.SetMember(item, "name", feat.Name);
+                    item.categoryDisplayName = template.categoryDisplayName ?? "Engine";
+                    item.subCategory = template.subCategory;
+                    item.group = template.group;
+                    item.iconUri = template.iconUri;
+                    item.type = template.type;
+
+                    // Erken donemde (garaj / ilk motor) arastirilabilir olsun
+                    item.v = new Il2CppSystem.Nullable<int>(1);
+                    item.techLevel = new Il2CppSystem.Nullable<int>(1);
                     item.cost = new Il2CppSystem.Nullable<double>(feat.ResearchCost);
                     item.engineCost = new Il2CppSystem.Nullable<double>(feat.EngineCost);
                     item.pointsCost = new Il2CppSystem.Nullable<double>(feat.ResearchPoints);
                     item.enginePoints = new Il2CppSystem.Nullable<int>(feat.EnginePoints);
+                    item.duration = template.duration;
+                    item.consolePart = template.consolePart;
+                    item.canResearch = template.canResearch;
+                    item.canUse = template.canUse;
+                    item.complete = template.complete;
+                    item.cancel = template.cancel;
+                    item.version = 1;
 
-                    primaryList.List.Add(item);
+                    if (allItems != null && !ContainsId(allItems, feat.Id))
+                        allItems.Add(item);
+
+                    if (engineItems != null && !ContainsId(engineItems, feat.Id))
+                        engineItems.Add(item);
+
                     addedCount++;
                 }
 
-                MelonLogger.Msg($"[Universe Architect] {addedCount} motor ozelligi '{primaryList.Name}' listesine kancasiz eklendi! (Sablon: {template.id})");
+                MelonLogger.Msg($"[Universe Architect] {addedCount} motor ozelligi kancasiz olarak Research listelerine eklendi!");
                 UniverseArchitectMod.EngineFeaturesInjected = true;
             }
             catch (Exception ex)
@@ -614,22 +663,25 @@ public static class EngineFeatureInjectorHelper
             }
         }
 
-        private static void CopyPropertyIfExists(ResearchItem src, ResearchItem dst, string propName)
+        private static bool ContainsId(Il2CppSystem.Collections.Generic.List<ResearchItem> list, string id)
         {
-            var prop = AccessTools.Property(typeof(ResearchItem), propName);
-            if (prop != null && prop.CanRead && prop.CanWrite)
+            if (list == null) return false;
+            for (int i = 0; i < list.Count; i++)
             {
-                try { prop.SetValue(dst, prop.GetValue(src)); } catch { }
+                if (list[i] != null && list[i].id == id) return true;
             }
+            return false;
         }
     }
 
     // =========================================================================
-    // 7. INCELEME PASIF BONUSLARI & JSON KAYIT
+    // 8. INCELEME PASIF BONUSLARI & CIFTE BONUS KILIDI & JSON KAYIT
     // =========================================================================
     [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
     {
+        private static readonly HashSet<IntPtr> _processedGames = new HashSet<IntPtr>();
+
         static void Postfix(Company company)
         {
             try
@@ -637,14 +689,11 @@ public static class EngineFeatureInjectorHelper
                 if (company == null || company.currentGame == null) return;
 
                 var game = company.currentGame;
-                string title = SafeReflection.GetStringMember(game, "title", "name") ?? "Yeni Oyun";
+                if (game.Pointer != IntPtr.Zero && !_processedGames.Add(game.Pointer))
+                    return;
 
-                string topicId = null;
-                var topicObj = SafeReflection.GetObjectMember(game, "topic");
-                if (topicObj != null)
-                    topicId = SafeReflection.GetStringMember(topicObj, "id");
-                if (string.IsNullOrEmpty(topicId))
-                    topicId = SafeReflection.GetStringMember(game, "topicId");
+                string title = !string.IsNullOrEmpty(game.title) ? game.title : "Yeni Oyun";
+                string topicId = game.topic != null ? game.topic.id : null;
 
                 var customTopic = Phase1Database.FindTopicById(topicId);
                 if (customTopic != null)
@@ -659,7 +708,7 @@ public static class EngineFeatureInjectorHelper
                         company.adjustHype(cappedHype);
                     }
 
-                    NotificationHelper.TryShow(
+                    NotificationHelper.Show(
                         company,
                         $"Konu Bonusu: {customTopic.Name}",
                         $"{title} için özel bonus devreye girdi: {customTopic.BonusLabel}"
@@ -671,8 +720,8 @@ public static class EngineFeatureInjectorHelper
                     game.score = Math.Min(10.0, game.score * 1.05);
                 }
 
-                UniverseSaveManager.RecordReleasedGame(title, topicId, game.score, UniverseArchitectMod.ActiveProjectCategory);
-                MelonLogger.Msg($"[Universe Architect] Oyun kaydedildi: '{title}' (Konu: {topicId ?? "standart"}, Skor: {game.score:F2})");
+                UniverseSaveManager.RecordReleasedGame(game, topicId, game.score, UniverseArchitectMod.ActiveProjectCategory);
+                MelonLogger.Msg($"[Universe Architect] Oyun kaydedildi (tekil): '{title}' (Konu: {topicId ?? "standart"}, Skor: {game.score:F2})");
             }
             catch (Exception ex)
             {
@@ -682,7 +731,7 @@ public static class EngineFeatureInjectorHelper
     }
 
     // =========================================================================
-    // 8. GOOGLE PLAY GAMES OFFLINE YAMALARI
+    // 9. GOOGLE PLAY GAMES OFFLINE YAMALARI
     // =========================================================================
     [HarmonyPatch(typeof(SocialManagerSocialImpl), "InitPlayGamesPlatform")]
     public static class Patch_BlockInitPlayGames
