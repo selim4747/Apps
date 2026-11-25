@@ -7,7 +7,7 @@ using HarmonyLib;
 using UnityEngine;
 using Il2CppRarebyte.GDT;
 
-[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.0.3", "NJG Games")]
+[assembly: MelonInfo(typeof(UniverseArchitect.UniverseArchitectMod), "Universe Architect (NJG Edition)", "1.0.4", "NJG Games")]
 [assembly: MelonGame("Greenheart Games", "Game Dev Tycoon")]
 
 namespace UniverseArchitect
@@ -22,18 +22,9 @@ namespace UniverseArchitect
         GTBT    // Alternatif Zaman Cizgisi
     }
 
-    public enum GameScale
-    {
-        Small,
-        Medium,
-        Large,
-        AAA
-    }
-
     public static class BalanceCaps
     {
         public const int MaxTotalModHype = 35;
-        public const float SoloBurnoutPenalty = 0.30f;
     }
 
     public class CustomTopicDef
@@ -57,7 +48,6 @@ namespace UniverseArchitect
         public int EnginePoints;
     }
 
-    // JSON Evren Kayit Veri Modelleri (Faz 2 Temeli)
     public class ReleasedGameRecord
     {
         public string Title { get; set; }
@@ -71,8 +61,6 @@ namespace UniverseArchitect
     {
         public string UniverseName { get; set; } = "Ana Evren";
         public int CanonIntegrity { get; set; } = 100;
-        public float SoloBurnoutBar { get; set; } = 0f;
-        public bool IsBurnedOut { get; set; } = false;
         public List<ReleasedGameRecord> ReleasedGames { get; set; } = new List<ReleasedGameRecord>();
     }
 
@@ -213,7 +201,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 2. JSON EVREN KAYIT SISTEMI (FAZ 2 TEMELI)
+    // 2. JSON EVREN KAYIT SISTEMI
     // =========================================================================
     public static class UniverseSaveManager
     {
@@ -231,7 +219,6 @@ namespace UniverseArchitect
                     if (loaded != null)
                     {
                         Current = loaded;
-                        SoloDevSystem.RestoreState(Current.SoloBurnoutBar, Current.IsBurnedOut);
                         MelonLogger.Msg($"[Universe Architect] Evren kaydi yuklendi! ({Current.ReleasedGames.Count} oyun, Tutarlilik: {Current.CanonIntegrity})");
                         return;
                     }
@@ -249,9 +236,6 @@ namespace UniverseArchitect
         {
             try
             {
-                Current.SoloBurnoutBar = SoloDevSystem.BurnoutBar;
-                Current.IsBurnedOut = SoloDevSystem.IsBurnedOut;
-
                 var opts = new JsonSerializerOptions { WriteIndented = true };
                 string json = JsonSerializer.Serialize(Current, opts);
                 File.WriteAllText(SavePath, json);
@@ -277,97 +261,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 3. COKMESIZ SOLO-DEV & TUKENMISLIK SISTEMI
-    // =========================================================================
-    public static class SoloDevSystem
-    {
-        public static float BurnoutBar { get; private set; } = 0f;
-        public static bool IsBurnedOut { get; private set; } = false;
-        private static int _lastObservedWeek = -1;
-        private static bool _notifiedBurnoutOnce = false;
-
-        public static void RestoreState(float bar, bool burnedOut)
-        {
-            BurnoutBar = Mathf.Clamp(bar, 0f, 100f);
-            IsBurnedOut = burnedOut;
-        }
-
-        public static void PollCompanyWeek(Company company)
-        {
-            if (company == null) return;
-
-            double rawWeek = SafeReflection.GetDoubleMember(company, "currentWeek", "week");
-            if (rawWeek <= 0) return;
-
-            int currentWeekInt = (int)Math.Floor(rawWeek);
-            if (_lastObservedWeek == -1)
-            {
-                _lastObservedWeek = currentWeekInt;
-                return;
-            }
-
-            if (currentWeekInt <= _lastObservedWeek) return;
-            _lastObservedWeek = currentWeekInt;
-
-            if (!company.isCurrentlyDevelopingGame() || company.currentGame == null)
-                return;
-
-            int staffCount = company.staff != null ? company.staff.Count : 1;
-            if (staffCount > 1)
-            {
-                if (BurnoutBar > 0f || IsBurnedOut)
-                {
-                    ResetBurnout();
-                    UniverseSaveManager.Save();
-                }
-                return;
-            }
-
-            string sizeStr = company.currentGame.gameSize ?? "small";
-            GameScale scale = ParseScale(sizeStr);
-            if (scale == GameScale.Small || scale == GameScale.Medium)
-                return;
-
-            float gain = (scale == GameScale.Large) ? 6f : 12f;
-            BurnoutBar = Mathf.Clamp(BurnoutBar + gain, 0f, 100f);
-
-            if (BurnoutBar >= 100f && !IsBurnedOut)
-            {
-                IsBurnedOut = true;
-                UniverseSaveManager.Save();
-                if (!_notifiedBurnoutOnce)
-                {
-                    _notifiedBurnoutOnce = true;
-                    NotificationHelper.TryShow(
-                        company,
-                        "Tükenmişlik Uyarısı!",
-                        "Tek başına büyük ölçekli oyun geliştirirken yoruldun. Yeni çalışan alana kadar geliştirme hızı %30 düştü."
-                    );
-                }
-            }
-        }
-
-        public static void ResetBurnout()
-        {
-            BurnoutBar = 0f;
-            IsBurnedOut = false;
-            _notifiedBurnoutOnce = false;
-        }
-
-        private static GameScale ParseScale(string raw)
-        {
-            switch (raw.ToLowerInvariant())
-            {
-                case "medium": return GameScale.Medium;
-                case "large":  return GameScale.Large;
-                case "aaa":    return GameScale.AAA;
-                default:       return GameScale.Small;
-            }
-        }
-    }
-
-    // =========================================================================
-    // 4. OYUN ICI BILDIRIM (POP-UP) & GUVENLI REFLECTION YARDIMCILARI
+    // 3. BILDIRIM & GUVENLI REFLECTION YARDIMCILARI
     // =========================================================================
     public static class NotificationHelper
     {
@@ -409,7 +303,7 @@ namespace UniverseArchitect
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning($"[Universe Architect] Oyun ici bildirim gonderilemedi (logla devam): {ex.Message}");
+                MelonLogger.Warning($"[Universe Architect] Bildirim atlandi: {ex.Message}");
             }
         }
     }
@@ -441,15 +335,6 @@ namespace UniverseArchitect
             return GetObjectMember(target, names) as string;
         }
 
-        public static double GetDoubleMember(object target, params string[] names)
-        {
-            var val = GetObjectMember(target, names);
-            if (val is double d) return d;
-            if (val is float f) return f;
-            if (val is int i) return i;
-            return -1;
-        }
-
         public static void SetMember(object target, string name, object value)
         {
             if (target == null) return;
@@ -468,26 +353,25 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 5. ANA MOD GIRISI
+    // 4. ANA MOD GIRISI
     // =========================================================================
     public class UniverseArchitectMod : MelonMod
     {
         public static ProjectCategory ActiveProjectCategory = ProjectCategory.UH;
-        public static Company ActiveCompany = null;
         public static bool TopicsInjected = false;
         public static bool LoggedResearchOnce = false;
-        private float _pollTimer = 0f;
+        private float _injectTimer = 0f;
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Universe Architect v1.0.3 (Konular + Motorlar + Bonuslar + SoloDev + JSON) baslatiliyor...");
+            LoggerInstance.Msg("Universe Architect v1.0.4 (ARM64 Guvenli: Konular + Motorlar + Bonuslar + JSON) baslatiliyor...");
             UniverseSaveManager.Load();
 
             try
             {
-                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v103");
+                var harmony = new HarmonyLib.Harmony("com.njggames.universearchitect.v104");
                 harmony.PatchAll();
-                LoggerInstance.Msg("[Universe Architect] Tum v1.0.3 yamalari basariyla uygulandi!");
+                LoggerInstance.Msg("[Universe Architect] Tum v1.0.4 yamalari basariyla uygulandi!");
             }
             catch (Exception ex)
             {
@@ -497,38 +381,13 @@ namespace UniverseArchitect
 
         public override void OnUpdate()
         {
-            _pollTimer += Time.unscaledDeltaTime;
-            if (_pollTimer < 1.5f) return;
-            _pollTimer = 0f;
+            if (TopicsInjected) return;
 
-            if (!TopicsInjected)
-                TopicInjectorHelper.TryInjectTopics();
+            _injectTimer += Time.unscaledDeltaTime;
+            if (_injectTimer < 2.0f) return;
+            _injectTimer = 0f;
 
-            // Aktif sirketi bulup Solo-Dev haftalik kontrolunu kancasiz yap
-            if (ActiveCompany == null)
-                TryFindActiveCompany();
-
-            if (ActiveCompany != null)
-            {
-                try { SoloDevSystem.PollCompanyWeek(ActiveCompany); }
-                catch { }
-            }
-        }
-
-        private static void TryFindActiveCompany()
-        {
-            try
-            {
-                var controllers = UnityEngine.Resources.FindObjectsOfTypeAll<GameController>();
-                if (controllers == null || controllers.Length == 0) return;
-
-                var compObj = SafeReflection.GetObjectMember(controllers[0], "company", "Company", "_company");
-                if (compObj is Company c)
-                {
-                    ActiveCompany = c;
-                }
-            }
-            catch { }
+            TopicInjectorHelper.TryInjectTopics();
         }
 
         public static int ApplyCappedModHype(int rawModHype)
@@ -538,7 +397,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 6. KONU ENJEKSIYONU (SABLON KOPYALAMA ILE GUVENLI)
+    // 5. KONU ENJEKSIYONU
     // =========================================================================
     public static class TopicInjectorHelper
     {
@@ -602,7 +461,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 7. MOTOR / AR-GE OZELLIKLERI ENJEKSIYONU
+    // 6. MOTOR / AR-GE OZELLIKLERI (REF OLMADAN GUVENLI POSTFIX)
     // =========================================================================
     [HarmonyPatch(typeof(Research), nameof(Research.getAllItems))]
     public static class Patch_InjectEngineFeatures
@@ -619,7 +478,8 @@ namespace UniverseArchitect
             "isTraining"
         };
 
-        static void Postfix(ref Il2CppSystem.Collections.Generic.List<ResearchItem> __result)
+        // DIKKAT: ARM64 IL2CPP cokmesini onlemek icin 'ref' kaldirildi!
+        static void Postfix(Il2CppSystem.Collections.Generic.List<ResearchItem> __result)
         {
             try
             {
@@ -657,7 +517,7 @@ namespace UniverseArchitect
                     foreach (var propName in SafeTemplateProps)
                     {
                         CopyPropertyIfExists(template, item, propName);
-                    }
+            }
 
                     item.id = feat.Id;
                     item.category = template.category ?? "Engine";
@@ -694,20 +554,8 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 8. SOLO-DEV HIZ YAMASI & INCELEME PASIF BONUSLARI
+    // 7. INCELEME PASIF BONUSLARI & JSON KAYIT
     // =========================================================================
-    [HarmonyPatch(typeof(General), nameof(General.getGameSizeDurationFactor))]
-    public static class Patch_SoloDevSpeed
-    {
-        static void Postfix(string gameSize, ref double __result)
-        {
-            if (SoloDevSystem.IsBurnedOut)
-            {
-                __result *= (1.0 + BalanceCaps.SoloBurnoutPenalty);
-            }
-        }
-    }
-
     [HarmonyPatch(typeof(Reviews), nameof(Reviews.reviewGame))]
     public static class Patch_ReviewGame
     {
@@ -716,12 +564,10 @@ namespace UniverseArchitect
             try
             {
                 if (company == null || company.currentGame == null) return;
-                UniverseArchitectMod.ActiveCompany = company;
 
                 var game = company.currentGame;
                 string title = SafeReflection.GetStringMember(game, "title", "name") ?? "Yeni Oyun";
 
-                // Konu ID'sini guvenli reflection ile oku
                 string topicId = null;
                 var topicObj = SafeReflection.GetObjectMember(game, "topic");
                 if (topicObj != null)
@@ -729,7 +575,6 @@ namespace UniverseArchitect
                 if (string.IsNullOrEmpty(topicId))
                     topicId = SafeReflection.GetStringMember(game, "topicId");
 
-                // 6 yeni konunun ozel pasif bonuslarini uygula
                 var customTopic = Phase1Database.FindTopicById(topicId);
                 if (customTopic != null)
                 {
@@ -750,13 +595,11 @@ namespace UniverseArchitect
                     );
                 }
 
-                // UD (Baloncuk Evren) bonusu
                 if (UniverseArchitectMod.ActiveProjectCategory == ProjectCategory.UD)
                 {
                     game.score = Math.Min(10.0, game.score * 1.05);
                 }
 
-                // Cikan oyunu JSON evren kaydina ekle
                 UniverseSaveManager.RecordReleasedGame(title, topicId, game.score, UniverseArchitectMod.ActiveProjectCategory);
                 MelonLogger.Msg($"[Universe Architect] Oyun kaydedildi: '{title}' (Konu: {topicId ?? "standart"}, Skor: {game.score:F2})");
             }
@@ -768,7 +611,7 @@ namespace UniverseArchitect
     }
 
     // =========================================================================
-    // 9. GOOGLE PLAY GAMES OFFLINE YAMALARI
+    // 8. GOOGLE PLAY GAMES OFFLINE YAMALARI
     // =========================================================================
     [HarmonyPatch(typeof(SocialManagerSocialImpl), "InitPlayGamesPlatform")]
     public static class Patch_BlockInitPlayGames
