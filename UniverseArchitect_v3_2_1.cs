@@ -2400,8 +2400,9 @@ namespace UniverseArchitect
                 };
 
                 double genreFit = 0.75;
-                bool hasPrimary = !string.IsNullOrEmpty(genreKey) && arch.GenreWeights.TryGetValue(genreKey, out double gw1);
-                bool hasSecondary = !string.IsNullOrEmpty(secondGenreKey) && arch.GenreWeights.TryGetValue(secondGenreKey, out double gw2);
+                double gw1 = 0.75, gw2 = 0.75;
+                bool hasPrimary = !string.IsNullOrEmpty(genreKey) && arch.GenreWeights.TryGetValue(genreKey, out gw1);
+                bool hasSecondary = !string.IsNullOrEmpty(secondGenreKey) && arch.GenreWeights.TryGetValue(secondGenreKey, out gw2);
                 if (hasPrimary && hasSecondary) genreFit = Math.Max(gw1, (gw1 * 0.65) + (gw2 * 0.35));
                 else if (hasPrimary) genreFit = gw1;
                 else if (hasSecondary) genreFit = gw2;
