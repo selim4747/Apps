@@ -1345,10 +1345,10 @@ namespace UniverseArchitect
             },
             new RivalStudioTemplate
             {
-                Id = "rival_entakos", Name = "Entakos Games", UniverseName = "Enta Kronikleri",
+                Id = "rival_entakos", Name = "Entakos Games", UniverseName = "EntaVerse",
                 Tone = UniverseTone.LightComedy, ArchetypeStyle = "Kült Kaos",
-                BaseSkill = 8.2, Variance = 1.0, ReleaseCadenceWeeks = 18, StartingFans = 570,
-                TitlePool = new[] { "Fenoc: İlk Şafak", "Zıkkım Vadisi", "Maloz İmparatorluğu", "Çonçur'un İntikamı", "Enta: Kırık Boyut", "Fenoc vs Zıkkım", "Maloz & Çonçur: Son Durak", "Enta: Zıkkım Protokolü", "Fenoc'un Dönüşü", "Çonçur: Maloz Savaşları" }
+                BaseSkill = 8.2, Variance = 1.3, ReleaseCadenceWeeks = 15, StartingFans = 570,
+                TitlePool = new[] { "Fenoc: İlk Şafak", "Zıkkım Vadisi", "Maloz İmparatorluğu", "Çonçur'un İntikamı", "Enta: Kırık Boyut", "Fenoc vs Zıkkım", "Maloz & Çonçur: Son Durak", "Enta: Zıkkım Protokolü", "Fenoc'un Dönüşü", "Çonçur: Maloz Savaşları", "Enta Kos:Fenoc Geldi" }
             },
             new RivalStudioTemplate
             {
